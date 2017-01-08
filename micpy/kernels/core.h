@@ -13,3 +13,13 @@
 #define _max_(x, y) (x < y) ? (y) : (x)
 
 #define _min_(x, y) (x < y) ? (x) : (y)
+
+#define _max_fa_(a, n) a[cblas_isamax(n, a, 1)]
+
+#define _max_da_(a, n) a[cblas_idamax(n, a, 1)]
+
+
+void flat_softmax_forward_float32(const float* x, float* c, float* sum, float* y, const int64_t* n);
+void flat_softmax_forward_float64(const double* x, double* c, double* sum, double* y, const int64_t* n);
+void softmax_forward_float32(const float* x, float* y, const int64_t* m, const int64_t* n);
+void softmax_forward_float64(const double* x, double* y, const int64_t* m, const int64_t* n);

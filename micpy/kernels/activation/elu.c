@@ -1,31 +1,37 @@
 #include "core.h"
 
 #define _elu_(in, out, size, a, type, zero, exp_func) \
-	_Pragma("simd")\
-	for (size_t _idx, _idx < size; ++_idx){\
-		type x = in[_idx];\
-		out[_idx] = (x < zero) ? (a * (exp_func(x) - 1.0)) : x;\
+	_Pragma("omp simd")\
+	for (size_t _i = 0; _i < size; ++_i){\
+		type x = in[_i];\
+		out[_i] = (x < zero) ? (a * (exp_func(x) - 1.0)) : x;\
 	}
 
 #define _eluback_(in, gra, out, size, a, type, zero, exp_func) \
-	_Pragma("simd")\
-	for (size_t _idx, _idx < size; ++_idx){\
-		type x = in[_idx];\
-		out[_idx] = (x < zero) ? (gra[_idx] * a * exp_func(x)) : gra[_idx];\
+	_Pragma("omp simd")\
+	for (size_t _i = 0; _i < size; ++_i){\
+		type x = in[_i];\
+		out[_i] = (x < zero) ? (gra[_i] * a * exp_func(x)) : gra[_i];\
 	}
 
-void elu_forward_float32(float* input, float* output, size_t size, double alpha){
-	_elu_(input, output, size, alpha, float, 0.0f, expf);
+PYMIC_KERNEL
+void elu_forward_float32(float* input, double* alpha, float* output, size_t* size){
+	float a = (float) *alpha;
+	_elu_(input, output, *size, a, float, 0.0f, expf);
 }
 
-void elu_forward_float64(double* input, double* output, size_t size, double alpha){
-	_elu_(input, output, size, alpha,  double, 0.0, exp);
+PYMIC_KERNEL
+void elu_forward_float64(double* input, double* alpha, double* output, size_t* size){
+	_elu_(input, output, *size, *alpha,  double, 0.0, exp);
 }
 
-void elu_backward_float32(float* input, float* grad, float* ouput, size_t size, double alpha){
-	_eluback_(input, grad, output, size, alpha, float, 0.0f, expf);
+PYMIC_KERNEL
+void elu_backward_float32(float* input, float* grad, double* alpha, float* output, size_t* size){
+	float a = (float) *alpha;
+	_eluback_(input, grad, output, *size, a, float, 0.0f, expf);
 }
 
-void elu_backward_float64(double* input, double* grad, double* output, size_t size, double alpha){
-	_eluback_(input, grad, output, size, alpha, double, 0.0, exp);
+PYMIC_KERNEL
+void elu_backward_float64(double* input, double* grad, double* alpha, double* output, size_t* size){
+	_eluback_(input, grad, output, *size, *alpha, double, 0.0, exp);
 }
