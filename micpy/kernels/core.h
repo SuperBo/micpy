@@ -18,6 +18,16 @@
 
 #define _max_da_(a, n) a[cblas_idamax(n, a, 1)]
 
+float smax(const int64_t n, float *x, const int64_t incx);
+int64_t ismax(const int64_t n, float *x, const int64_t incx);
+double dmax(const int64_t n, double *x, const int64_t incx);
+int64_t idmax(const int64_t n, double *x, const int64_t incx);
+
+float smin(const int64_t n, float *x, const int64_t incx);
+int64_t ismin(const int64_t n, float *x, const int64_t incx);
+double dmin(const int64_t n, double *x, const int64_t incx);
+int64_t idmin(const int64_t n, double *x, const int64_t incx);
+
 
 void flat_softmax_forward_float32(const float* x, float* c, float* sum, float* y, const int64_t* n);
 void flat_softmax_forward_float64(const double* x, double* c, double* sum, double* y, const int64_t* n);

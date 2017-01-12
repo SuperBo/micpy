@@ -1,5 +1,105 @@
 #include "core.h"
 
+float smax(const int64_t n, float* x, const int64_t incx) {
+	float ma = x[0];
+
+	for (int64_t i = 0; i < n; i += incx) {
+		if (x[i] > ma)
+			ma = x[i];
+	}
+
+	return ma;
+}
+
+double dmax(const int64_t n, double* x, const int64_t incx) {
+	double ma = x[0];
+
+	for (int64_t i = 0; i < n; i += incx) {
+		if (x[i] > ma)
+			ma = x[i];
+	}
+
+	return ma;
+}
+
+float smin(const int64_t n, float* x, const int64_t incx) {
+	float ma = x[0];
+
+	for (int64_t i = 0; i < n; i += incx) {
+		if (x[i] < ma)
+			ma = x[i];
+	}
+
+	return ma;
+}
+
+double dmin(const int64_t n, double* x, const int64_t incx) {
+	double ma = x[0];
+
+	for (int64_t i = 0; i < n; i += incx) {
+		if (x[i] < ma)
+			ma = x[i];
+	}
+
+	return ma;
+}
+
+int64_t ismax(const int64_t n, float* x, const int64_t incx) {
+	int64_t idx = 0;
+	float mx_val = x[0];
+
+	for (int64_t i = 0; i < n; i += incx) {
+		if (x[i] > mx_val) {
+			mx_val = x[i];
+			idx = i;
+		}
+	}
+
+	return idx;
+}
+
+int64_t idmax(const int64_t n, double* x, const int64_t incx) {
+	int64_t idx = 0;
+	double mx_val = x[0];
+
+	for (int64_t i = 0; i < n; i += incx) {
+		if (x[i] > mx_val) {
+			mx_val = x[i];
+			idx = i;
+		}
+	}
+
+	return idx;
+}
+
+int64_t ismin(const int64_t n, float* x, const int64_t incx) {
+	int64_t idx = 0;
+	float mi_val = x[0];
+
+	for (int64_t i = 0; i < n; i += incx) {
+		if (x[i] < mi_val) {
+			mi_val = x[i];
+			idx = i;
+		}
+	}
+
+	return idx;
+}
+
+int64_t idmin(const int64_t n, double* x, const int64_t incx) {
+	int64_t idx = 0;
+	double mi_val = x[0];
+
+	for (int64_t i = 0; i < n; i += incx) {
+		if (x[i] < mi_val) {
+			mi_val = x[i];
+			idx = i;
+		}
+	}
+
+	return idx;
+}
+
 PYMIC_KERNEL
 void sum(const int64_t* dtype, const void* a, const int64_t* niter, const int64_t* inciter, const int64_t* n, const int64_t* incn, void* out) {
 	int64_t i, j;
@@ -71,16 +171,20 @@ void argmax(const int64_t* dtype, const void* a, const int64_t* niter, const int
 		case DTYPE_FLOAT32:
 		{
 			float* x = (float*) a;
+
+			#pragma omp parallel for
 			for (i = 0; i < *niter; ++i, x += *inciter) {
-				out[i] = cblas_isamax(*n, x, *inca);
+				out[i] = ismax(*n, x, *inca);
 			}
 		}
 		break;
 		case DTYPE_FLOAT64:
 		{
 			double* x = (double*) a;
+
+			#pragma omp parallel for
 			for (i = 0; i < *niter; ++i, x += *inciter) {
-				out[i] = cblas_idamax(*n, x, *inca);
+				out[i] = idmax(*n, x, *inca);
 			}
 		}
 		break;
@@ -88,22 +192,26 @@ void argmax(const int64_t* dtype, const void* a, const int64_t* niter, const int
 }
 
 PYMIC_KERNEL
-void argmin(const int64_t* dtype, const int64_t* niter, const int64_t* n, const void* a, const int64_t* inciter, const int64_t* inca, int64_t* out) {
+void argmin(const int64_t* dtype, const void* a, const int64_t* niter, const int64_t* n, const int64_t* inciter, const int64_t* inca, int64_t* out) {
 	int64_t i;
 	switch (*dtype) {
 		case DTYPE_FLOAT32:
 		{
 			float* x = (float*) a;
+
+			#pragma omp parallel for
 			for (i = 0; i < *niter; ++i, x += *inciter) {
-				out[i] = cblas_isamin(*n, x, *inca);
+				out[i] = ismin(*n, x, *inca);
 			}
 		}
 		break;
 		case DTYPE_FLOAT64:
 		{
 			double* x = (double*) a;
+
+			#pragma omp parallel for
 			for (i = 0; i < *niter; ++i, x += *inciter) {
-				out[i] = cblas_idamin(*n, x, *inca);
+				out[i] = idmin(*n, x, *inca);
 			}
 		}
 		break;
