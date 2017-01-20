@@ -1,7 +1,7 @@
-from pymic import OffloadArray as ndarray
 from pymic import OffloadStream as stream
 
 from . import device
+from .ndarray import ndarray
 from .util import get_array_module
 from .core import *
 

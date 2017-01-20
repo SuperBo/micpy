@@ -1,6 +1,5 @@
 import numpy
 
-from ..device import RUNTIME
 from ..core import empty
 from .. import util
 from .reduce import _reduce
