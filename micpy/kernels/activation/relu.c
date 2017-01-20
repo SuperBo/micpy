@@ -1,13 +1,13 @@
 #include "core.h"
 
 #define _relu_(in, out, size, zero) \
-	_Pragma("omp simd")\
+	Pragma( omp parallel for simd linear(in,out:1) )\
 	for (int64_t _idx = 0; _idx < size; ++_idx) {\
 		out[_idx] = (in[_idx] < zero) ? zero : in[_idx];\
 	}
 
 #define _reluback_(in, gra, out, size, zero) \
-	_Pragma("omp simd")\
+	Pragma( omp parallel for simd linear(in,out:1) )\
 	for (int64_t _idx = 0; _idx < size; ++_idx) {\
 		out[_idx] = (in[_idx] < zero) ? zero : gra[_idx];\
 	}

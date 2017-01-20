@@ -1,14 +1,14 @@
 #include "core.h"
 
 #define _elu_(in, out, size, a, type, zero, exp_func) \
-	_Pragma("omp simd")\
+	Pragma( omp parallel for simd linear(in,out:1) )\
 	for (size_t _i = 0; _i < size; ++_i){\
 		type x = in[_i];\
 		out[_i] = (x < zero) ? (a * (exp_func(x) - 1.0)) : x;\
 	}
 
 #define _eluback_(in, gra, out, size, a, type, zero, exp_func) \
-	_Pragma("omp simd")\
+	Pragma( omp parallel for simd linear(in,out,gra:1) )\
 	for (size_t _i = 0; _i < size; ++_i){\
 		type x = in[_i];\
 		out[_i] = (x < zero) ? (gra[_i] * a * exp_func(x)) : gra[_i];\

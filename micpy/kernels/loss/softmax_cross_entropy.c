@@ -6,13 +6,13 @@
  */
 void softmax_cross_entropy_forward_float32(const int64_t* m, const int64_t* n,
 		const double* normalize_coeff, const int64_t* ignored_label,
-		const float* x, const int32_t* t, float* y, float* loss)
+		float* x, const int32_t* t, float* y, float* loss)
 {
 
 	float cross = 0.0f;
 
 	//Loop for each samples
-	//#pragma omp parallel for reduction(+:cross)
+	#pragma omp parallel for reduction(+:cross)
 	for (int64_t i = 0; i < *m; ++i) {
 		if (t[i] < 0 || t[i] >= *n || t[i] == *ignored_label)
 			continue;
@@ -51,11 +51,11 @@ void softmax_cross_entropy_forward_float32(const int64_t* m, const int64_t* n,
 
 void softmax_cross_entropy_forward_float64(const int64_t* m, const int64_t* n,
 		const double* normalize_coeff, const int64_t* ignored_label,
-		const double* x, const int32_t* t, double* y, double* loss)
+		double* x, const int32_t* t, double* y, double* loss)
 {
 	double cross = 0.0;
 
-	//#pragma omp parallel for reduction(+:cross)
+	#pragma omp parallel for reduction(+:cross)
 	for (int64_t i = 0; i < *m; ++i) {
 		if (t[i] < 0 || t[i] >= *n || t[i] == *ignored_label)
 			continue;
@@ -66,6 +66,7 @@ void softmax_cross_entropy_forward_float64(const int64_t* m, const int64_t* n,
 		//Calculate total sum of e^(x-m)
 		if (y == NULL) {
 			max = _max_da_((x + offset), *n);
+
 			#pragma omp simd aligned(y,x:64) reduction(+:sum)
 			for (int64_t j = 0; j < *n; ++j) {
 				//Calculate normalized e^(x-max)

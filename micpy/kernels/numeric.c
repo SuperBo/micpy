@@ -3,6 +3,7 @@
 float smax(const int64_t n, float* x, const int64_t incx) {
 	float ma = x[0];
 
+	#pragma omp parallel for simd reduction(max:ma)
 	for (int64_t i = 0; i < n; i += incx) {
 		if (x[i] > ma)
 			ma = x[i];
@@ -14,6 +15,7 @@ float smax(const int64_t n, float* x, const int64_t incx) {
 double dmax(const int64_t n, double* x, const int64_t incx) {
 	double ma = x[0];
 
+	#pragma omp parallel for simd reduction(max:ma)
 	for (int64_t i = 0; i < n; i += incx) {
 		if (x[i] > ma)
 			ma = x[i];
@@ -25,6 +27,7 @@ double dmax(const int64_t n, double* x, const int64_t incx) {
 float smin(const int64_t n, float* x, const int64_t incx) {
 	float ma = x[0];
 
+	#pragma omp parallel for simd reduction(min:ma)
 	for (int64_t i = 0; i < n; i += incx) {
 		if (x[i] < ma)
 			ma = x[i];
@@ -36,6 +39,7 @@ float smin(const int64_t n, float* x, const int64_t incx) {
 double dmin(const int64_t n, double* x, const int64_t incx) {
 	double ma = x[0];
 
+	#pragma omp parallel for simd reduction(min:ma)
 	for (int64_t i = 0; i < n; i += incx) {
 		if (x[i] < ma)
 			ma = x[i];
@@ -48,6 +52,7 @@ int64_t ismax(const int64_t n, float* x, const int64_t incx) {
 	int64_t idx = 0;
 	float mx_val = x[0];
 
+	#pragma omp parallel for
 	for (int64_t i = 0; i < n; i += incx) {
 		if (x[i] > mx_val) {
 			mx_val = x[i];
@@ -62,6 +67,7 @@ int64_t idmax(const int64_t n, double* x, const int64_t incx) {
 	int64_t idx = 0;
 	double mx_val = x[0];
 
+	#pragma omp parallel for
 	for (int64_t i = 0; i < n; i += incx) {
 		if (x[i] > mx_val) {
 			mx_val = x[i];
@@ -76,6 +82,7 @@ int64_t ismin(const int64_t n, float* x, const int64_t incx) {
 	int64_t idx = 0;
 	float mi_val = x[0];
 
+	#pragma omp parallel for
 	for (int64_t i = 0; i < n; i += incx) {
 		if (x[i] < mi_val) {
 			mi_val = x[i];
@@ -90,6 +97,7 @@ int64_t idmin(const int64_t n, double* x, const int64_t incx) {
 	int64_t idx = 0;
 	double mi_val = x[0];
 
+	#pragma omp parallel for
 	for (int64_t i = 0; i < n; i += incx) {
 		if (x[i] < mi_val) {
 			mi_val = x[i];

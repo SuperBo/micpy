@@ -1,14 +1,14 @@
 #include "core.h"
 
 #define _hsigmoid_(in, out, size, type, zero, one, a, b)\
-	_Pragma("omp simd")\
+	Pragma(omp parallel for simd linear(in,out:1))\
 	for (size_t _i = 0; _i < size; ++_i){\
 		type v = in[_i] * a + b;\
 		out[_i] = (v > zero) ? ((v < one) ? v : one) : zero ;\
 	}
 
 #define _hsigmoidback_(in, grad, out, size, zero, a, bound)\
-	_Pragma("omp simd")\
+	Pragma(omp parallel for simd linear(in,out,grad:1))\
 	for (size_t _i = 0; _i < size; ++_i){\
 		out[_i] = (in[_i] < -bound || in[_i] > bound) ? zero : grad[_i] * a;\
 	}

@@ -5,7 +5,7 @@ void flat_softmax_forward_float32(const float* x, float* c, float* sum, float* y
 	if (c) *c = max;
 	float _sum = 0.0f;
 
-	#pragma omp simd reduction(+:_sum)
+	#pragma omp simd linear(x,y:1) reduction(+:_sum)
 	for (int64_t i = 0; i < *size; ++i) {
 		float e_xm = expf(x[i] - max);
 		y[i] = e_xm;
@@ -15,7 +15,7 @@ void flat_softmax_forward_float32(const float* x, float* c, float* sum, float* y
 	if (sum) *sum = _sum;
 
 	// Calculate output of softmax
-	#pragma omp simd
+	#pragma omp simd linear(y:1)
 	for (size_t i = 0; i < *size; ++i) {
 		y[i] /= _sum;
 	}
@@ -26,7 +26,7 @@ void flat_softmax_forward_float64(const double* x, double* c, double* sum, doubl
 	if (c) *c = max;
 	double _sum = 0.0;
 
-	#pragma omp simd reduction(+:_sum)
+	#pragma omp simd linear(x,y:1) reduction(+:_sum)
 	for (int64_t i = 0; i < *size; ++i) {
 		double e_xm = exp(x[i] - max);
 		y[i] = e_xm;
@@ -36,13 +36,14 @@ void flat_softmax_forward_float64(const double* x, double* c, double* sum, doubl
 	if (sum) *sum = _sum;
 
 	// Calculate output of softmax
-	#pragma omp simd
+	#pragma omp simd linear(y:1)
 	for (int64_t i = 0; i < *size; ++i) {
 		y[i] /= _sum;
 	}
 }
 
 #define _call_softmax_(type, m, n, x, y)\
+	Pragma(omp parallel for)\
 	for (int64_t i = 0; i < *m; ++i) {\
 		size_t offset = (*n) * i;\
 		flat_softmax_forward_ ## type(x + offset, NULL, NULL, y + offset, n);\
@@ -61,7 +62,7 @@ void softmax_forward_float64(const double* x, double* y, const int64_t* m, const
 void flat_softmax_backward_float32(const float* y, const float* gy, float* gx, const int64_t* size) {
 	float sum = 0.0f;
 
-	#pragma omp simd reduction(+:sum)
+	#pragma omp simd linear(y,gx,gy:1) reduction(+:sum)
 	for (int64_t i = 0; i < *size; ++i) {
 		float t = y[i] * gy[i];
 		gx[i] = t;
@@ -74,7 +75,7 @@ void flat_softmax_backward_float32(const float* y, const float* gy, float* gx, c
 void flat_softmax_backward_float64(const double* y, const double* gy, double* gx, const int64_t* size) {
 	double sum = 0.0;
 
-	#pragma omp simd reduction(+:sum)
+	#pragma omp simd linear(y,gx,gy:1) reduction(+:sum)
 	for (size_t i = 0; i < *size; ++i) {
 		double t = y[i] * gy[i];
 		gx[i] = y[i] * gy[i];
@@ -85,6 +86,7 @@ void flat_softmax_backward_float64(const double* y, const double* gy, double* gx
 }
 
 #define _call_softmaxback_(type, m, n, y, gy, gx)\
+	Pragma(omp parallel for)\
 	for (int64_t i = 0; i < *m; ++i) {\
 		size_t offset = (*n) * i;\
 		flat_softmax_backward_ ## type(y + offset, gy + offset, gx + offset, n);\

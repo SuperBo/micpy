@@ -10,13 +10,15 @@
 #define DTYPE_COMPLEX   4
 #define DTYPE_UINT64    5
 
+#define Pragma(x) _Pragma(#x)
+
 #define _max_(x, y) (x < y) ? (y) : (x)
 
 #define _min_(x, y) (x < y) ? (x) : (y)
 
-#define _max_fa_(a, n) a[cblas_isamax(n, a, 1)]
+#define _max_fa_(a, n) smax(n, a, 1)
 
-#define _max_da_(a, n) a[cblas_idamax(n, a, 1)]
+#define _max_da_(a, n) dmax(n, a, 1)
 
 float smax(const int64_t n, float *x, const int64_t incx);
 int64_t ismax(const int64_t n, float *x, const int64_t incx);
