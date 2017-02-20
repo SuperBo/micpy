@@ -109,10 +109,8 @@ mpy_alloc_cache_zero(npy_uintp sz, int device)
     if (sz < NBUCKETS) {
         p = _mpy_alloc_cache(device, sz, 1, NBUCKETS, datacache, &PyDataMemMic_NEW);
         if (p) {
-            Py_BEGIN_ALLOW_THREADS
             #pragma omp target device(device) map(to:p,sz)
             memset(p, 0, sz);
-            Py_END_ALLOW_THREADS
         }
         return p;
     }
@@ -175,10 +173,8 @@ PyDataMemMic_NEW_ZEROED(size_t size, size_t elsize, int device)
 {
     void *result;
 
-    Py_BEGIN_ALLOW_THREADS
     #pragma omp target device(device) map(from:result)
     result = calloc(size, elsize);
-    Py_END_ALLOW_THREADS
 
     return result;
 }
