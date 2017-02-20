@@ -34,6 +34,8 @@ _may_have_objects(PyArray_Descr *dtype);
 NPY_NO_EXPORT PyObject *
 convert_shape_to_string(npy_intp n, npy_intp *vals, char *ending);
 
+NPY_NO_EXPORT const char *
+npy_casting_to_string(NPY_CASTING casting);
 
 /*
  * return true if pointer is aligned to 'alignment'

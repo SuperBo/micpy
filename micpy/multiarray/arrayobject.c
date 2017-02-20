@@ -39,9 +39,9 @@
 #include "getset.h"
 #include "alloc.h"
 
-/*NUMPY_API
-  Compute the size of an array (in number of items)
-*/
+/* NUMPY_API
+ * Compute the size of an array (in number of items)
+ */
 NPY_NO_EXPORT npy_intp
 PyMicArray_Size(PyObject *op)
 {
@@ -51,6 +51,29 @@ PyMicArray_Size(PyObject *op)
     else {
         return 0;
     }
+}
+
+/* NUMPY_API
+ *
+ * This function does nothing if obj is writeable, and raises an exception
+ * (and returns -1) if obj is not writeable. It may also do other
+ * house-keeping, such as issuing warnings on arrays which are transitioning
+ * to become views. Always call this function at some point before writing to
+ * an array.
+ *
+ * 'name' is a name for the array, used to give better error
+ * messages. Something like "assignment destination", "output array", or even
+ * just "array".
+ */
+NPY_NO_EXPORT int
+PyMicArray_FailUnlessWriteable(PyMicArrayObject *obj, const char *name)
+{
+    if (!PyMicArray_ISWRITEABLE(obj)) {
+        PyErr_Format(PyExc_ValueError, "%s is read-only", name);
+        return -1;
+    }
+
+    return 0;
 }
 
 /*NUMPY_API
@@ -77,7 +100,7 @@ PyMicArray_SetUpdateIfCopyBase(PyMicArrayObject *arr, PyMicArrayObject *base)
                   "Cannot set array with existing base to UPDATEIFCOPY");
         goto fail;
     }
-    if (PyArray_FailUnlessWriteable((PyArrayObject *)base, "UPDATEIFCOPY base") < 0) {
+    if (PyMicArray_FailUnlessWriteable(base, "UPDATEIFCOPY base") < 0) {
         goto fail;
     }
 

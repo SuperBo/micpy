@@ -2413,17 +2413,6 @@ array_complex(PyArrayObject *self, PyObject *NPY_UNUSED(args))
 
 NPY_NO_EXPORT PyMethodDef array_methods[] = {
 
-    /* for subtypes */
-    {"__array__",
-        (PyCFunction)array_getarray,
-        METH_VARARGS, NULL},
-    {"__array_prepare__",
-        (PyCFunction)array_preparearray,
-        METH_VARARGS, NULL},
-    {"__array_wrap__",
-        (PyCFunction)array_wraparray,
-        METH_VARARGS, NULL},
-
     /* for the sys module */
     {"__sizeof__",
         (PyCFunction) array_sizeof,

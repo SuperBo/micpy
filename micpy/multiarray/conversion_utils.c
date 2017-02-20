@@ -26,7 +26,7 @@
  * If you use PyArray_GeneralConverter, you must DECREF the array when finished
  * as you get a new reference to it.
  */
-int
+NPY_NO_EXPORT int
 PyMicArray_GeneralConverter(PyObject *object, PyObject **address)
 {
     if (PyArray_Check(object) || PyMicArray_Check(object)) {
@@ -44,3 +44,36 @@ PyMicArray_GeneralConverter(PyObject *object, PyObject **address)
     }
 }
 
+
+NPY_NO_EXPORT int
+PyMicArray_Converter(PyObject *object, PyObject **address)
+{
+    if (PyMicArray_Check(object)) {
+        *address = object;
+        Py_INCREF(object);
+        return NPY_SUCCEED;
+    }
+
+    return NPY_FAIL;
+}
+
+
+NPY_NO_EXPORT int
+PyMicArray_DeviceConverter(PyObject *object, int *device)
+{
+    /* Leave value untouched while object is None or NULL */
+    if (object == Py_None || object == NULL) {
+        return NPY_SUCCEED;
+    }
+
+    int dev = PyArray_PyIntAsInt(object);
+    if (dev >= 0 && dev < NDEVICES) {
+        *device = dev;
+        return NPY_SUCCEED;
+    }
+    else {
+        PyErr_Format(PyExc_ValueError, "device must be in range "
+                        "[%d,%d)", 0, NDEVICES);
+        return NPY_FAIL;
+    }
+}

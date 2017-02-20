@@ -149,3 +149,24 @@ convert_shape_to_string(npy_intp n, npy_intp *vals, char *ending)
     PyUString_ConcatAndDel(&ret, tmp);
     return ret;
 }
+
+/* Convert NPY_CASTING to string
+ * borrow from numpy */
+NPY_NO_EXPORT const char *
+npy_casting_to_string(NPY_CASTING casting)
+{
+    switch (casting) {
+        case NPY_NO_CASTING:
+            return "'no'";
+        case NPY_EQUIV_CASTING:
+            return "'equiv'";
+        case NPY_SAFE_CASTING:
+            return "'safe'";
+        case NPY_SAME_KIND_CASTING:
+            return "'same_kind'";
+        case NPY_UNSAFE_CASTING:
+            return "'unsafe'";
+        default:
+            return "<unknown>";
+    }
+}

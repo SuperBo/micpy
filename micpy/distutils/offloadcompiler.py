@@ -15,7 +15,7 @@ class IntelOffloadCCompiler(UnixCCompiler):
         UnixCCompiler.__init__(self, verbose, dry_run, force)
         self.cc_exe = ('icc -fPIC -fp-model precise -O3 '
                        '-fomit-frame-pointer -qopenmp '
-                       '-Wall '
+                       '-Wall -Wimplicit '
                        '-qoffload-option,mic,compiler,'
                        '\'"-fp-model fast=2"\'')
         compiler = self.cc_exe

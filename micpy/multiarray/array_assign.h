@@ -40,6 +40,10 @@ PyMicArray_AssignRawScalar(PyMicArrayObject *dst,
                         PyMicArrayObject *wheremask,
                         NPY_CASTING casting);
 
+NPY_NO_EXPORT int
+PyArray_AssignArrayFromDevice(PyArrayObject *dst, PyMicArrayObject *src,
+                    NPY_CASTING casting);
+
 /******** LOW-LEVEL SCALAR TO ARRAY ASSIGNMENT ********/
 
 /*

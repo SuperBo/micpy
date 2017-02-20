@@ -32,6 +32,7 @@
 //#include "calculation.h"
 //#include "number.h"
 //#include "numpymemoryview.h"
+#include "array_assign.h"
 #include "conversion_utils.h"
 #include "methods.h"
 #include "creators.h"
@@ -122,6 +123,8 @@ _pyarray_revert(PyArrayObject *ret)
                  ((order) == NPY_CORDER && PyArray_IS_C_CONTIGUOUS(op)) || \
                  ((order) == NPY_FORTRANORDER && PyArray_IS_F_CONTIGUOUS(op)))
 
+
+
 static PyObject *
 array_copyto(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
 {
@@ -137,14 +140,14 @@ array_empty(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
     PyArray_Dims shape = {NULL, 0};
     NPY_ORDER order = NPY_CORDER;
     npy_bool is_f_order;
-    npy_int device = DEFAULT_DEVICE;
+    int device = DEFAULT_DEVICE;
     PyMicArrayObject *ret = NULL;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|O&O&i", kwlist,
-                PyArray_IntpConverter, &shape,
-                PyArray_DescrConverter, &typecode,
-                PyArray_OrderConverter, &order,
-                &device)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|O&O&O&", kwlist,
+                &PyArray_IntpConverter, &shape,
+                &PyArray_DescrConverter, &typecode,
+                &PyArray_OrderConverter, &order,
+                &PyMicArray_DeviceConverter, &device)) {
         goto fail;
     }
 
@@ -182,14 +185,15 @@ array_empty_like(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
     PyArray_Descr *dtype = NULL;
     NPY_ORDER order = NPY_KEEPORDER;
     PyMicArrayObject *ret = NULL;
-    npy_int device = DEFAULT_DEVICE;
-    int subok = 1;
+    int device = DEFAULT_DEVICE;
+    int subok = 0;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|O&O&ii", kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|O&O&iO&", kwlist,
                 &PyMicArray_GeneralConverter, &prototype,
                 &PyArray_DescrConverter2, &dtype,
                 &PyArray_OrderConverter, &order,
-                &subok, &device)) {
+                &subok,
+                &PyMicArray_DeviceConverter, &device)) {
         goto fail;
     }
 
@@ -215,13 +219,13 @@ array_zeros(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
     NPY_ORDER order = NPY_CORDER;
     npy_bool is_f_order = NPY_FALSE;
     PyMicArrayObject *ret = NULL;
-    npy_int device = DEFAULT_DEVICE;
+    int device = DEFAULT_DEVICE;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|O&O&i", kwlist,
-                PyArray_IntpConverter, &shape,
-                PyArray_DescrConverter, &typecode,
-                PyArray_OrderConverter, &order,
-                &device)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|O&O&O&", kwlist,
+                &PyArray_IntpConverter, &shape,
+                &PyArray_DescrConverter, &typecode,
+                &PyArray_OrderConverter, &order,
+                &PyMicArray_DeviceConverter, &device)) {
         goto fail;
     }
 
@@ -262,6 +266,67 @@ static PyObject *
 array_fastCopyAndTranspose(PyObject *NPY_UNUSED(dummy), PyObject *args)
 {
     //TODO: implement this
+    return NULL;
+}
+
+
+static PyObject *
+array_to_host(PyObject *NPY_UNUSED(ignored), PyObject *args)
+{
+    PyObject *array = NULL;
+    PyArrayObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, "O&",
+                &PyMicArray_GeneralConverter, &array)) {
+        goto fail;
+    }
+
+    /* If array is numpy ndarray, return itself */
+    if (PyArray_Check(array)) {
+        return array;
+    }
+
+    ret = (PyArrayObject *) PyArray_NewLikeArray((PyArrayObject *) array,
+                                            NPY_KEEPORDER, NULL, 0);
+    if (PyArray_AssignArrayFromDevice(ret, (PyMicArrayObject * ) array,
+                                            NPY_NO_CASTING) < 0){
+        goto fail;
+    }
+
+    Py_DECREF(array);
+    return (PyObject *)ret;
+
+fail:
+    Py_XDECREF(array);
+    return NULL;
+}
+
+
+static PyObject *
+array_to_device(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
+{
+    static char *kwlist[] = {"arr","device",NULL};
+    PyArrayObject *array = NULL;
+    PyMicArrayObject *ret = NULL;
+    int device = DEFAULT_DEVICE;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|O&", kwlist,
+                &PyArray_Converter, &array,
+                &PyMicArray_DeviceConverter, &device)) {
+        goto fail;
+    }
+
+    ret = (PyMicArrayObject *)PyMicArray_NewLikeArray(device, array,
+                                            NPY_KEEPORDER, NULL, 0);
+    if (PyMicArray_AssignArrayFromHost(ret, array, NPY_NO_CASTING) < 0){
+        goto fail;
+    }
+
+    Py_DECREF(array);
+    return (PyObject *)ret;
+
+fail:
+    Py_XDECREF(array);
     return NULL;
 }
 
@@ -387,6 +452,12 @@ static struct PyMethodDef array_module_methods[] = {
     {"result_type",
         (PyCFunction)array_result_type,
         METH_VARARGS, NULL},*/
+    {"to_cpu",
+        (PyCFunction)array_to_host,
+        METH_VARARGS, NULL},
+    {"to_mic",
+        (PyCFunction)array_to_device,
+        METH_VARARGS | METH_KEYWORDS, NULL},
     {"ndevices",
         (PyCFunction)get_num_devices,
         METH_NOARGS, NULL},

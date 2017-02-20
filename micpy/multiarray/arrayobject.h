@@ -46,6 +46,8 @@ typedef struct _OffloadArrayObject {
 NPY_NO_EXPORT int
 PyMicArray_SetBaseObject(PyMicArrayObject *arr, PyObject *obj);
 
+NPY_NO_EXPORT int
+PyMicArray_FailUnlessWriteable(PyMicArrayObject *obj, const char *name);
 
 /*
  * This flag is used to mark arrays which we would like to, in the future,
