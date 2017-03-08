@@ -11,8 +11,8 @@
 
 #include "npy_config.h"
 
-#include "scalar.h"
 #include "arrayobject.h"
+#include "scalar.h"
 #include "creators.h"
 #include "array_assign.h"
 //#include "mapping.h"
@@ -77,7 +77,8 @@ npy_fallocate(npy_intp nbytes, FILE * fp)
 NPY_NO_EXPORT PyObject *
 PyMicArray_ToList(PyMicArrayObject *self)
 {
-    return PyArray_ToList((PyArrayObject *)self);
+    /*return PyArray_ToList((PyArrayObject *)self);*/
+    return NULL;
 }
 
 /* XXX: FIXME --- add ordering argument to

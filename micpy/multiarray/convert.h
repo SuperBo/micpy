@@ -12,4 +12,7 @@ NPY_NO_EXPORT PyObject *
 PyMicArray_View(PyMicArrayObject *self,
                     PyArray_Descr *type, PyTypeObject *pytype);
 
+NPY_NO_EXPORT int
+PyMicArray_FillWithScalar(PyMicArrayObject *arr, PyObject *obj);
+
 #endif

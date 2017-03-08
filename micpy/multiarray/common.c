@@ -72,6 +72,51 @@ _IsAligned(PyMicArrayObject *ap)
     return mpy_is_aligned((void *)aligned, alignment);
 }
 
+NPY_NO_EXPORT npy_bool
+_IsWriteable(PyMicArrayObject *ap)
+{
+    PyObject *base=PyMicArray_BASE(ap);
+    void *dummy;
+    Py_ssize_t n;
+
+    /* If we own our own data, then no-problem */
+    if ((base == NULL) || (PyMicArray_FLAGS(ap) & NPY_ARRAY_OWNDATA)) {
+        return NPY_TRUE;
+    }
+    /*
+     * Get to the final base object
+     * If it is a writeable array, then return TRUE
+     * If we can find an array object
+     * or a writeable buffer object as the final base object
+     * or a string object (for pickling support memory savings).
+     * - this last could be removed if a proper pickleable
+     * buffer was added to Python.
+     *
+     * MW: I think it would better to disallow switching from READONLY
+     *     to WRITEABLE like this...
+     */
+
+    while(PyMicArray_Check(base)) {
+        if (PyMicArray_CHKFLAGS((PyMicArrayObject *)base, NPY_ARRAY_OWNDATA)) {
+            return (npy_bool) (PyMicArray_ISWRITEABLE((PyMicArrayObject *)base));
+        }
+        base = PyMicArray_BASE((PyMicArrayObject *)base);
+    }
+
+    /*
+     * here so pickle support works seamlessly
+     * and unpickled array can be set and reset writeable
+     * -- could be abused --
+     */
+    if (PyString_Check(base)) {
+        return NPY_TRUE;
+    }
+    if (PyObject_AsWriteBuffer(base, &dummy, &n) < 0) {
+        return NPY_FALSE;
+    }
+    return NPY_TRUE;
+}
+
 /*
  * check whether arrays with datatype dtype might have object fields. This will
  * only happen for structured dtypes (which may have hidden objects even if the

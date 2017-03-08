@@ -5,8 +5,11 @@
 #define NPY_NO_DEPRECATED_API NPY_API_VERSION
 #define NO_IMPORT_ARRAY
 #define PY_ARRAY_UNIQUE_SYMBOL MICPY_ARRAY_API
-#include "numpy/arrayobject.h"
-#include "numpy/arrayscalars.h"
+#include <numpy/arrayobject.h>
+#include <numpy/arrayscalars.h>
+
+#include "arrayobject.h"
+#include "scalar.h"
 
 NPY_NO_EXPORT void *
 scalar_value(PyObject *scalar, PyArray_Descr *descr)
@@ -135,4 +138,46 @@ scalar_value(PyObject *scalar, PyArray_Descr *descr)
 #undef _IFCASE
 #undef _OBJ
 #undef _CHK
+}
+
+/* Does nothing with descr (cannot be NULL) */
+/*NUMPY_API
+  Get scalar-equivalent to a region of memory described by a descriptor.
+*/
+NPY_NO_EXPORT PyObject *
+PyMicArray_Scalar(void *data, PyArray_Descr *descr, PyObject *base)
+{
+    //TODO(superbo): implement
+    return NULL;
+}
+
+
+ /*
+ * Return either an array or the appropriate Python object if the array
+ * is 0d and matches a Python type.
+ * steals reference to mp
+ */
+NPY_NO_EXPORT PyObject *
+PyMicArray_Return(PyMicArrayObject *mp)
+{
+
+    if (mp == NULL) {
+        return NULL;
+    }
+    if (PyErr_Occurred()) {
+        Py_XDECREF(mp);
+        return NULL;
+    }
+    if (!PyArray_Check(mp)) {
+        return (PyObject *)mp;
+    }
+    if (PyMicArray_NDIM(mp) == 0) {
+        PyObject *ret;
+        ret = PyMicArray_ToScalar(PyMicArray_DATA(mp), mp);
+        Py_DECREF(mp);
+        return ret;
+    }
+    else {
+        return (PyObject *)mp;
+    }
 }

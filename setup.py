@@ -9,9 +9,11 @@ numpy_private_dir = join('numpy', 'private')
 multiarray_dir = join('micpy', 'multiarray')
 
 multiarray_sources = ['alloc.c', 'array_assign.c', 'arrayobject.c',
-                      'common.c', 'convert.c', 'conversion_utils.c',
-                      'creators.c', 'getset.c', 'shape.c',
-                      'scalar.c', 'multiarraymodule.c']
+                      'common.c', 'calculation.c', 'convert.c',
+                      'conversion_utils.c', 'creators.c', 'getset.c',
+                      'methods.c', 'shape.c', 'scalar.c', 'item_selection.c',
+                      'convert_datatype.c',
+                      'multiarraymodule.c']
 multiarray_sources = list(map(lambda f: join(multiarray_dir, f),
                          multiarray_sources))
 # Add numpy/private/mem_overlap.c to sources
@@ -24,6 +26,8 @@ def configuration(parent_package='', top_path=None):
 
     config = Configuration('micpy', parent_package, top_path)
 
+    #TODO: find a better way to define NMAXDEVICES
+    #hint: use micinfo to get number of devices
     config.add_extension('multiarray',
                         sources=multiarray_sources,
                         define_macros=[('NMAXDEVICES', '2')],

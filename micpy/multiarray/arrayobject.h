@@ -42,6 +42,8 @@ typedef struct _OffloadArrayObject {
     int device;
 } PyMicArrayObject;
 
+#define MPY_SIZEOF_PYMICARRAYOBJECT (sizeof(PyMicArrayObject))
+
 /*API*/
 NPY_NO_EXPORT int
 PyMicArray_SetBaseObject(PyMicArrayObject *arr, PyObject *obj);
@@ -67,6 +69,7 @@ static const int NPY_ARRAY_WARN_ON_WRITE = (1 << 31);
 
 extern PyTypeObject PyMicArray_Type;
 #define PyMicArray_Check(op) PyObject_TypeCheck(op, &PyMicArray_Type)
+#define PyMicArray_CheckExact(op) (((PyObject*)(op))->ob_type == &PyMicArray_Type)
 
 #define PyMicArray_ISONESEGMENT(m) (PyMicArray_NDIM(m) == 0 || \
                 PyMicArray_CHKFLAGS(m, NPY_ARRAY_C_CONTIGUOUS) || \

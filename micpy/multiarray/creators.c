@@ -552,8 +552,8 @@ PyMicArray_CopyAnyInto(PyMicArrayObject *dst, PyMicArrayObject *src)
     return PyMicArray_CopyAsFlat(dst, src, NPY_CORDER);
 }
 
-/*NUMPY_API
- * Copy an Array into another array.
+/*
+ * Copy an Device array into another device array.
  * Broadcast to the destination shape if necessary.
  *
  * Returns 0 on success, -1 on failure.
@@ -564,8 +564,8 @@ PyMicArray_CopyInto(PyMicArrayObject *dst, PyMicArrayObject *src)
     return PyMicArray_AssignArray(dst, src, NULL, NPY_UNSAFE_CASTING);
 }
 
-/*NUMPY_API
- * Copy an Array into another array.
+/*
+ * Copy an host array into another device array.
  * Broadcast to the destination shape if necessary.
  *
  * Returns 0 on success, -1 on failure.
@@ -574,6 +574,18 @@ NPY_NO_EXPORT int
 PyMicArray_CopyIntoFromHost(PyMicArrayObject *dst, PyArrayObject *src)
 {
     return PyMicArray_AssignArrayFromHost(dst, src, NPY_UNSAFE_CASTING);
+}
+
+/*
+ * Copy an device array into another host array.
+ * Broadcast to the destination shape if necessary.
+ *
+ * Returns 0 on success, -1 on failure.
+ */
+NPY_NO_EXPORT int
+PyMicArray_CopyIntoHost(PyArrayObject *dst, PyMicArrayObject *src)
+{
+    return PyArray_AssignArrayFromDevice(dst, src, NPY_UNSAFE_CASTING);
 }
 
 /*NUMPY_API

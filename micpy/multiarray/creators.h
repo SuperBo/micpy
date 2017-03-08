@@ -45,6 +45,8 @@ PyMicArray_CopyAnyInto(PyMicArrayObject *dst, PyMicArrayObject *src);
 NPY_NO_EXPORT int
 PyMicArray_CopyInto(PyMicArrayObject *dst, PyMicArrayObject *src);
 
+NPY_NO_EXPORT int
+PyMicArray_CopyIntoHost(PyArrayObject *dst, PyMicArrayObject *src);
 
 NPY_NO_EXPORT int
 PyMicArray_CopyIntoFromHost(PyMicArrayObject *dst, PyArrayObject *src);

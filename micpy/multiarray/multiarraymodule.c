@@ -271,7 +271,7 @@ array_fastCopyAndTranspose(PyObject *NPY_UNUSED(dummy), PyObject *args)
 
 
 static PyObject *
-array_to_host(PyObject *NPY_UNUSED(ignored), PyObject *args)
+array_tohost(PyObject *NPY_UNUSED(ignored), PyObject *args)
 {
     PyObject *array = NULL;
     PyArrayObject *ret = NULL;
@@ -288,8 +288,8 @@ array_to_host(PyObject *NPY_UNUSED(ignored), PyObject *args)
 
     ret = (PyArrayObject *) PyArray_NewLikeArray((PyArrayObject *) array,
                                             NPY_KEEPORDER, NULL, 0);
-    if (PyArray_AssignArrayFromDevice(ret, (PyMicArrayObject * ) array,
-                                            NPY_NO_CASTING) < 0){
+    if (PyMicArray_CopyIntoHost(ret, (PyMicArrayObject * ) array) < 0){
+        Py_XDECREF(ret);
         goto fail;
     }
 
@@ -303,7 +303,7 @@ fail:
 
 
 static PyObject *
-array_to_device(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
+array_todevice(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
 {
     static char *kwlist[] = {"arr","device",NULL};
     PyArrayObject *array = NULL;
@@ -318,7 +318,8 @@ array_to_device(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
 
     ret = (PyMicArrayObject *)PyMicArray_NewLikeArray(device, array,
                                             NPY_KEEPORDER, NULL, 0);
-    if (PyMicArray_AssignArrayFromHost(ret, array, NPY_NO_CASTING) < 0){
+    if (PyMicArray_CopyIntoFromHost(ret, array) < 0){
+        Py_XDECREF(ret);
         goto fail;
     }
 
@@ -453,10 +454,10 @@ static struct PyMethodDef array_module_methods[] = {
         (PyCFunction)array_result_type,
         METH_VARARGS, NULL},*/
     {"to_cpu",
-        (PyCFunction)array_to_host,
+        (PyCFunction)array_tohost,
         METH_VARARGS, NULL},
     {"to_mic",
-        (PyCFunction)array_to_device,
+        (PyCFunction)array_todevice,
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"ndevices",
         (PyCFunction)get_num_devices,
