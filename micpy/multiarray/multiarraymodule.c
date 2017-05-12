@@ -38,6 +38,7 @@
 #include "creators.h"
 #include "common.h"
 #include "multiarraymodule.h"
+#include "multiarray_api_creator.h"
 
 int num_devices;
 int current_device;
@@ -523,7 +524,7 @@ PyMODINIT_FUNC PyInit_multiarray(void) {
 PyMODINIT_FUNC initmultiarray(void) {
 #endif
     PyObject *m, *d, *s;
-    //PyObject *c_api;
+    PyObject *c_api = NULL;
 
     /* Init some variable */
     num_devices = omp_get_num_devices();
@@ -539,6 +540,16 @@ PyMODINIT_FUNC initmultiarray(void) {
         goto err;
     }
 
+    /* Initialize C-API */
+    init_PyMicArray_API;
+#ifdef PyMicArray_API_USE_CAPSULE
+    c_api = PyCapsule_New((void *)PyMicArray_API, "micpy.multiarray._CAPI", NULL);
+#else
+    c_api = PyCObject_FromVoidPtr((void *)PyMicArray_API, "micpy.multiarray._CAPI");
+#endif
+    if (c_api != NULL) {
+        PyModule_AddObject(m, "_MICARRAY_CAPI", c_api);
+    }
     /* Import Numpy Array module */
     import_array();
 

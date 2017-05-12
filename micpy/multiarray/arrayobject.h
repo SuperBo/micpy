@@ -118,6 +118,7 @@ extern PyTypeObject PyMicArray_Type;
 
 #define PyMicArray_UpdateFlags(o, FLAGS)\
             PyArray_UpdateFlags((PyArrayObject *)o, FLAGS)
+#define PyMicArray_XDECREF_ERR(o) PyArray_XDECREF_ERR((PyArrayObject *)o)
 
 /* Type macros*/
 #define PyMicArray_ISBOOL(obj) PyTypeNum_ISBOOL(PyMicArray_TYPE(obj))
