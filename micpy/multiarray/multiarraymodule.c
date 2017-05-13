@@ -541,15 +541,16 @@ PyMODINIT_FUNC initmultiarray(void) {
     }
 
     /* Initialize C-API */
-    init_PyMicArray_API;
+    init_PyMicArray_API();
 #ifdef PyMicArray_API_USE_CAPSULE
-    c_api = PyCapsule_New((void *)PyMicArray_API, "micpy.multiarray._CAPI", NULL);
+    c_api = PyCapsule_New((void *)PyMicArray_API, NULL, NULL);
 #else
-    c_api = PyCObject_FromVoidPtr((void *)PyMicArray_API, "micpy.multiarray._CAPI");
+    c_api = PyCObject_FromVoidPtr((void *)PyMicArray_API, NULL);
 #endif
     if (c_api != NULL) {
         PyModule_AddObject(m, "_MICARRAY_CAPI", c_api);
     }
+
     /* Import Numpy Array module */
     import_array();
 

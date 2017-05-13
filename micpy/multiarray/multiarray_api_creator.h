@@ -5,7 +5,7 @@
 #define PyMicArray_API_USE_CAPSULE
 #endif
 
-#define init_PyMicArray_API \
+#define init_PyMicArray_API() \
     static void *PyMicArray_API[] = {\
         (void *) &PyMicArray_New,\
         (void *) &PyMicArray_NewFromDescr,\

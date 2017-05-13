@@ -63,8 +63,9 @@ static int _import_pymicarray() {
 #endif
 
 #define import_micarray() {\
-    if (_import_pymicarray() < 0) {PyErr_Print(); PyErr_SetString(PyExc_ImportError, "micpy.multiarray failed to import"); return MICPY_IMPORT_ARRAY_RETVAL; }\
+    if (_import_pymicarray() < 0) {PyErr_Print(); PyErr_SetString(PyExc_ImportError, "micpy.multiarray failed to import"); return MICPY_IMPORT_ARRAY_RETVAL;}\
 }
+
 #endif
 
 #define PyMicArray_New \
