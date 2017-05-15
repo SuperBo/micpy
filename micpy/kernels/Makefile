@@ -34,7 +34,7 @@ objects = activation/activation.o loss/loss.o statistics/statistics.o
 all: micpy.so
 
 micpy.so: core.c numeric.c $(objects)
-	icc -I./ -I$(MKLROOT)/include -fPIC -shared -fopenmp -mmic -O2 -L$(MKLROOT)/lib/mic -lmkl_intel_lp64 -lmkl_core -lmkl_intel_thread -o $@ $^
+	icc -I./ -I$(MKLROOT)/include -std=c99 -fPIC -shared -fopenmp -mmic -O2 -L$(MKLROOT)/lib/mic -lmkl_intel_lp64 -lmkl_core -lmkl_intel_thread -o $@ $^
 
 activation/activation.o:
 	$(MAKE) -C activation

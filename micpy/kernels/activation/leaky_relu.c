@@ -7,7 +7,7 @@
 	}
 
 #define _leakyreluback_(x, grad, out, size, slope, zero) \
-	_Pragma( omp parallel for simd linear(in,out,grad:1) )\
+	Pragma( omp parallel for simd linear(x,out,grad:1) )\
 	for (size_t _idx = 0; _idx < size; _idx++) {\
 		out[_idx] = (x[_idx] < zero) ? grad[_idx] * slope : grad[_idx];\
 	}
