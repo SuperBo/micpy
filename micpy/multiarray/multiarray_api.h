@@ -1,3 +1,6 @@
+#ifndef _MPY_ARRAY_API_CLIENT_H_
+#define _MPY_ARRAY_API_CLIENT_H_
+
 #ifdef PyMicArray_API_UNIQUE_NAME
 #define PyMicArray_API PyMicArray_API_UNIQUE_NAME
 #else
@@ -68,20 +71,94 @@ static int _import_pymicarray() {
 
 #endif
 
+#define PyMicArray_Type (*(PyTypeObject *) PyMicArray_API[0])
 #define PyMicArray_New \
     (*(PyObject * (*)(int, PyTypeObject *, int, npy_intp *, int, npy_intp *, void *, \
                        int, int, PyObject *)) \
-     PyMicArray_API[0])
+     PyMicArray_API[1])
 #define PyMicArray_NewFromDescr \
     (*(PyObject * (*)(int, PyTypeObject *, PyArray_Descr *, int, npy_intp *, \
                       npy_intp *, void *, int, PyObject *)) \
-     PyMicArray_API[1])
+     PyMicArray_API[2])
 #define PyMicArray_NewLikeArray \
     (*(PyObject * (*)(int, PyArrayObject *, NPY_ORDER, PyArray_Descr *, int)) \
-     PyMicArray_API[2])
+     PyMicArray_API[3])
 #define PyMicArray_Empty \
     (*(PyObject * (*)(int, int, npy_intp *, PyArray_Descr *, int)) \
-     PyMicArray_API[3])
+     PyMicArray_API[4])
 #define PyMicArray_Zeros \
     (*(PyObject * (*)(int, int, npy_intp *, PyArray_Descr *, int)) \
-     PyMicArray_API[4])
+     PyMicArray_API[5])
+#define PyMicArray_FromAny \
+    (*(PyObject * (*)(PyObject *, PyArray_Descr *, int, int, int , PyObject *)) \
+     PyMicArray_API[6])
+#define PyMicArray_FromArray \
+    (*(PyObject *(*)(PyArrayObject *, PyArray_Descr *, int, int)) \
+     PyMicArray_API[7])
+#define PyMicArray_CopyAnyInto \
+    (*(int (*)(PyMicArrayObject *, PyMicArrayObject *)) \
+     PyMicArray_API[8])
+#define PyMicArray_CopyInto \
+    (*(int (*)(PyMicArrayObject *, PyMicArrayObject *)) \
+     PyMicArray_API[9])
+#define PyMicArray_CopyIntoHost \
+    (*(int (*)(PyArrayObject *, PyMicArrayObject *)) \
+     PyMicArray_API[10])
+#define PyMicArray_CopyIntoFromHost \
+    (*(int (*)(PyMicArrayObject *, PyArrayObject *)) \
+     PyMicArray_API[11])
+#define PyMicArray_CopyAsFlat \
+    (*(int (*)(PyMicArrayObject *, PyMicArrayObject *, NPY_ORDER)) \
+     PyMicArray_API[12])
+#define PyMicArray_MoveInto \
+    (*(int (*)(PyMicArrayObject *, PyMicArrayObject *)) \
+     PyMicArray_API[13])
+#define PyMicArray_NewCopy \
+    (*(PyObject * (*)(PyMicArrayObject *, NPY_ORDER)) \
+     PyMicArray_API[14])
+#define PyMicArray_View \
+    (*(PyObject *(*)(PyMicArrayObject *, PyArray_Descr *, PyTypeObject *)) \
+     PyMicArray_API[15])
+#define PyMicArray_Resize \
+    (*(PyObject * (*)(PyMicArrayObject *, PyArray_Dims *, int, NPY_ORDER)) \
+     PyMicArray_API[16])
+#define PyMicArray_Newshape \
+    (*(PyObject * (*)(PyMicArrayObject *, PyArray_Dims *, NPY_ORDER)) \
+     PyMicArray_API[17])
+#define PyMicArray_Reshape \
+    (*(PyObject * (*)(PyMicArrayObject *, PyObject *)) \
+     PyMicArray_API[18];
+#define PyMicArray_Transpose \
+    (*(PyObject * (*)(PyMicArrayObject *, PyArray_Dims *)) \
+     PyMicArray_API[19])
+#define PyMicArray_SwapAxes \
+    (*(PyObject * (*)(PyMicArrayObject *, int, int)) \
+     PyMicArray_API[20])
+#define PyMicArray_Ravel \
+    (*(PyObject * (*)(PyMicArrayObject *, NPY_ORDER)) \
+     PyMicArray_API[21])
+#define PyMicArray_Flatten \
+    (*(PyObject * (*)(PyMicArrayObject *, NPY_ORDER)) \
+     PyMicArray_API[22])
+#define PyMicArray_RemoveAxesInPlace \
+    (*(void (*)(PyMicArrayObject *, npy_bool *)) \
+     PyMicArray_API[23])
+#define PyMicArray_Return \
+    (*(PyObject * (*)(PyMicArrayObject *)) \
+     PyMicArray_API[24])
+#define PyMicArray_Scalar \
+    (*(PyObject * (*)(void *, PyArray_Descr *, PyObject *)) \
+     PyMicArray_API[25])
+#define PyMicArray_FillWithScalar \
+    (*(int (*)(PyMicArrayObject *, PyObject *)) \
+     PyMicArray_API[26])
+#define PyMicArray_FailUnlessWriteable \
+    (*(int (*)(PyMicArrayObject *, const char *)) \
+     PyMicArray_API[27])
+#define PyMicArray_GetNumDevices \
+    (*(int (*)(void)) \
+     PyMicArray_API[28])
+#define PyMicArray_GetCurrentDevice \
+    (*(int (*)(void)) \
+     PyMicArray_API[29])
+#endif

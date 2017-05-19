@@ -7,6 +7,7 @@
 #include <numpy/arrayobject.h>
 #include <numpy/npy_3kcompat.h>
 
+#define _MICARRAYMODULE
 #include "common.h"
 #include "arrayobject.h"
 

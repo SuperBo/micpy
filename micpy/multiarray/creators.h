@@ -37,7 +37,7 @@ PyMicArray_FromAny(PyObject *op, PyArray_Descr *newtype, int min_depth,
                     int max_depth, int flags, PyObject *context);
 
 NPY_NO_EXPORT PyObject *
-PyMicArray_FromArray(PyArrayObject *arr, PyArray_Descr *newtype, int flags);
+PyMicArray_FromArray(PyArrayObject *arr, PyArray_Descr *newtype, int device, int flags);
 
 NPY_NO_EXPORT int
 PyMicArray_CopyAnyInto(PyMicArrayObject *dst, PyMicArrayObject *src);

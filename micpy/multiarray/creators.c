@@ -11,10 +11,12 @@
 
 #include "templ_common.h"
 
+#define _MICARRAYMODULE
 #include "common.h"
 #include "arrayobject.h"
 #include "multiarraymodule.h"
 #include "creators.h"
+#include "convert.h"
 #include "array_assign.h"
 //#include "numpymemoryview.h"
 //#include "lowlevel_strided_loops.h"
@@ -299,7 +301,7 @@ PyMicArray_NewFromDescr_int(int device, PyTypeObject *subtype, PyArray_Descr *de
     if ((subtype != &PyMicArray_Type)) {
         PyObject *res, *func, *args;
 
-        func = PyObject_GetAttr((PyObject *)fa, npy_ma_str_array_finalize);
+        func = PyObject_GetAttr((PyObject *)fa, mpy_ma_str_array_finalize);
         if (func && func != Py_None) {
             if (NpyCapsule_Check(func)) {
                 /* A C-function is stored here */
@@ -493,12 +495,181 @@ PyMicArray_FromAny(PyObject *op, PyArray_Descr *newtype, int min_depth,
 
 /*NUMPY_API
  * steals reference to newtype --- acc. NULL
+ * arr can be PyMicArray or PyArray
  */
 NPY_NO_EXPORT PyObject *
-PyMicArray_FromArray(PyArrayObject *arr, PyArray_Descr *newtype, int flags)
+PyMicArray_FromArray(PyArrayObject *arr, PyArray_Descr *newtype, int device, int flags)
 {
-    //TODO: implement
-    return NULL;
+    PyMicArrayObject *ret = NULL;
+    int itemsize;
+    int copy = 0;
+    int arrflags;
+    PyArray_Descr *oldtype;
+    NPY_CASTING casting = NPY_SAFE_CASTING;
+
+    oldtype = PyArray_DESCR(arr);
+    if (newtype == NULL) {
+        /*
+         * Check if object is of array with Null newtype.
+         * If so return it directly instead of checking for casting.
+         */
+        if (flags == 0) {
+            Py_INCREF(arr);
+            return (PyObject *)arr;
+        }
+        newtype = oldtype;
+        Py_INCREF(oldtype);
+    }
+    itemsize = newtype->elsize;
+    if (itemsize == 0) {
+        PyArray_DESCR_REPLACE(newtype);
+        if (newtype == NULL) {
+            return NULL;
+        }
+        newtype->elsize = oldtype->elsize;
+        itemsize = newtype->elsize;
+    }
+
+    /* If the casting if forced, use the 'unsafe' casting rule */
+    if (flags & NPY_ARRAY_FORCECAST) {
+        casting = NPY_UNSAFE_CASTING;
+    }
+
+    /* Raise an error if the casting rule isn't followed */
+    if (!PyArray_CanCastArrayTo(arr, newtype, casting)) {
+        PyObject *errmsg;
+        PyArray_Descr *arr_descr = NULL;
+        PyObject *arr_descr_repr = NULL;
+        PyObject *newtype_repr = NULL;
+
+        PyErr_Clear();
+        errmsg = PyUString_FromString("Cannot cast array data from ");
+        arr_descr = PyArray_DESCR(arr);
+        if (arr_descr == NULL) {
+            Py_DECREF(newtype);
+            Py_DECREF(errmsg);
+            return NULL;
+        }
+        arr_descr_repr = PyObject_Repr((PyObject *)arr_descr);
+        if (arr_descr_repr == NULL) {
+            Py_DECREF(newtype);
+            Py_DECREF(errmsg);
+            return NULL;
+        }
+        PyUString_ConcatAndDel(&errmsg, arr_descr_repr);
+        PyUString_ConcatAndDel(&errmsg,
+                PyUString_FromString(" to "));
+        newtype_repr = PyObject_Repr((PyObject *)newtype);
+        if (newtype_repr == NULL) {
+            Py_DECREF(newtype);
+            Py_DECREF(errmsg);
+            return NULL;
+        }
+        PyUString_ConcatAndDel(&errmsg, newtype_repr);
+        PyUString_ConcatAndDel(&errmsg,
+                PyUString_FromFormat(" according to the rule %s",
+                        npy_casting_to_string(casting)));
+        PyErr_SetObject(PyExc_TypeError, errmsg);
+        Py_DECREF(errmsg);
+
+        Py_DECREF(newtype);
+        return NULL;
+    }
+
+    arrflags = PyArray_FLAGS(arr);
+           /* If a guaranteed copy was requested */
+    copy = !PyMicArray_Check(arr) ||
+           (PyMicArray_DEVICE(arr) != device) ||
+           (flags & NPY_ARRAY_ENSURECOPY) ||
+           /* If C contiguous was requested, and arr is not */
+           ((flags & NPY_ARRAY_C_CONTIGUOUS) &&
+                   (!(arrflags & NPY_ARRAY_C_CONTIGUOUS))) ||
+           /* If an aligned array was requested, and arr is not */
+           ((flags & NPY_ARRAY_ALIGNED) &&
+                   (!(arrflags & NPY_ARRAY_ALIGNED))) ||
+           /* If a Fortran contiguous array was requested, and arr is not */
+           ((flags & NPY_ARRAY_F_CONTIGUOUS) &&
+                   (!(arrflags & NPY_ARRAY_F_CONTIGUOUS))) ||
+           /* If a writeable array was requested, and arr is not */
+           ((flags & NPY_ARRAY_WRITEABLE) &&
+                   (!(arrflags & NPY_ARRAY_WRITEABLE))) ||
+           !PyArray_EquivTypes(oldtype, newtype);
+
+    if (copy) {
+        NPY_ORDER order = NPY_KEEPORDER;
+        int subok = 1;
+        int copy_ret = -1;
+
+        /* Set the order for the copy being made based on the flags */
+        if (flags & NPY_ARRAY_F_CONTIGUOUS) {
+            order = NPY_FORTRANORDER;
+        }
+        else if (flags & NPY_ARRAY_C_CONTIGUOUS) {
+            order = NPY_CORDER;
+        }
+
+        if ((flags & NPY_ARRAY_ENSUREARRAY)) {
+            subok = 0;
+        }
+
+        ret = (PyMicArrayObject *)PyMicArray_NewLikeArray(device, arr, order,
+                                                    newtype, subok);
+
+        if (ret == NULL) {
+            return NULL;
+        }
+
+        if (PyArray_CheckExact(arr)) {
+            copy_ret = PyMicArray_CopyIntoFromHost(ret, arr);
+        }
+        else if (PyMicArray_Check(arr)) {
+            copy_ret = PyMicArray_CopyInto(ret, (PyMicArrayObject *)arr);
+        }
+
+        if (copy_ret < 0) {
+            Py_DECREF(ret);
+            return NULL;
+        }
+
+        if (flags & NPY_ARRAY_UPDATEIFCOPY)  {
+            Py_INCREF(arr);
+            if (PyArray_SetUpdateIfCopyBase((PyArrayObject *)ret, arr) < 0) {
+                Py_DECREF(ret);
+                return NULL;
+            }
+        }
+    }
+    /*
+     * If no copy then take an appropriate view if necessary, or
+     * just return a reference to ret itself.
+     */
+    else {
+        int needview = ((flags & NPY_ARRAY_ENSUREARRAY) &&
+                        !PyMicArray_CheckExact(arr));
+        PyMicArrayObject *mic_arr = (PyMicArrayObject *) arr;
+
+        Py_DECREF(newtype);
+        if (needview) {
+            PyArray_Descr *dtype = PyMicArray_DESCR(mic_arr);
+            PyTypeObject *subtype = NULL;
+
+            if (flags & NPY_ARRAY_ENSUREARRAY) {
+                subtype = &PyMicArray_Type;
+            }
+
+            Py_INCREF(dtype);
+            ret = (PyMicArrayObject *)PyMicArray_View(mic_arr, NULL, subtype);
+            if (ret == NULL) {
+                return NULL;
+            }
+        }
+        else {
+            Py_INCREF(mic_arr);
+            ret = mic_arr;
+        }
+    }
+
+    return (PyObject *)ret;
 }
 
 /*NUMPY_API */

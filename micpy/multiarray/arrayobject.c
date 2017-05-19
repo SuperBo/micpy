@@ -33,6 +33,7 @@
 #include "numpy/arrayscalars.h"
 #include "numpy/npy_3kcompat.h"
 
+#define _MICARRAYMODULE
 #include "arrayobject.h"
 #include "creators.h"
 #include "methods.h"

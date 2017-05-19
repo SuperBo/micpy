@@ -9,6 +9,7 @@
 
 #include "npy_config.h"
 
+#define _MICARRAYMODULE
 #include "arrayobject.h"
 //#include "convert_datatype.h"
 //#include "methods.h"
@@ -702,8 +703,8 @@ static int broadcast_array_strides(PyArrayObject *dst, PyArrayObject *src, npy_i
  * 'dst' overlap, to be able to handle views of the same data with
  * different strides.
  *
- * dst: The destination array.
- * src: The source array.
+ * dst: The destination array (On device memory).
+ * src: The source array (On device memory).
  * wheremask: If non-NULL, a boolean mask specifying where to copy.
  * casting: An exception is raised if the copy violates this
  *          casting rule.
@@ -726,7 +727,7 @@ PyMicArray_AssignArray(PyMicArrayObject *dst, PyMicArrayObject *src,
  * different strides.
  *
  * dst: The destination array (On device memory).
- * src: The source array. (On host memory).
+ * src: The source array (On host memory).
  *
  * Returns 0 on success, -1 on failure.
  */
@@ -808,6 +809,17 @@ fail:
     return -1;
 }
 
+/*
+ * An array assignment function for copying arrays, broadcasting 'src' into
+ * 'dst'. This function makes a temporary copy of 'src' if 'src' and
+ * 'dst' overlap, to be able to handle views of the same data with
+ * different strides.
+ *
+ * dst: The destination array (On host memory).
+ * src: The source array (On device memory).
+ *
+ * Returns 0 on success, -1 on failure.
+ */
 NPY_NO_EXPORT int
 PyArray_AssignArrayFromDevice(PyArrayObject *dst, PyMicArrayObject *src,
                     NPY_CASTING casting)

@@ -25,8 +25,10 @@
 #include <numpy/arrayobject.h>
 #include <numpy/arrayscalars.h>
 
-//#include "numpy/npy_math.h"
+#include <numpy/npy_math.h>
+#include <npy_config.h>
 
+#define _MICARRAYMODULE
 /* Internal APIs */
 #include "arrayobject.h"
 //#include "calculation.h"
@@ -36,18 +38,25 @@
 #include "conversion_utils.h"
 #include "methods.h"
 #include "creators.h"
+#include "convert.h"
 #include "common.h"
 #include "multiarraymodule.h"
 #include "multiarray_api_creator.h"
+#include "shape.h"
+#include "scalar.h"
 
-int num_devices;
-int current_device;
+static int num_devices;
+static int current_device;
 
-
-static PyObject *
-get_num_devices(PyObject *ignored, PyObject *args){
-    return (PyObject *) PyInt_FromLong(num_devices);
+NPY_NO_EXPORT int PyMicArray_GetCurrentDevice(void){
+    return current_device;
 }
+
+NPY_NO_EXPORT int PyMicArray_GetNumDevices(void){
+    return num_devices;
+}
+
+
 
 static PyObject *
 get_current_device(PyObject *ignored, PyObject *args){
@@ -460,45 +469,42 @@ static struct PyMethodDef array_module_methods[] = {
     {"to_mic",
         (PyCFunction)array_todevice,
         METH_VARARGS | METH_KEYWORDS, NULL},
-    {"ndevices",
-        (PyCFunction)get_num_devices,
-        METH_NOARGS, NULL},
     {"device",
         (PyCFunction)get_current_device,
         METH_NOARGS, NULL},
     {NULL, NULL, 0, NULL}                /* sentinel */
 };
 
-NPY_VISIBILITY_HIDDEN PyObject * npy_ma_str_array = NULL;
-NPY_VISIBILITY_HIDDEN PyObject * npy_ma_str_array_prepare = NULL;
-NPY_VISIBILITY_HIDDEN PyObject * npy_ma_str_array_wrap = NULL;
-NPY_VISIBILITY_HIDDEN PyObject * npy_ma_str_array_finalize = NULL;
-NPY_VISIBILITY_HIDDEN PyObject * npy_ma_str_buffer = NULL;
-NPY_VISIBILITY_HIDDEN PyObject * npy_ma_str_ufunc = NULL;
-NPY_VISIBILITY_HIDDEN PyObject * npy_ma_str_order = NULL;
-NPY_VISIBILITY_HIDDEN PyObject * npy_ma_str_copy = NULL;
-NPY_VISIBILITY_HIDDEN PyObject * npy_ma_str_dtype = NULL;
-NPY_VISIBILITY_HIDDEN PyObject * npy_ma_str_ndmin = NULL;
+NPY_VISIBILITY_HIDDEN PyObject * mpy_ma_str_array = NULL;
+NPY_VISIBILITY_HIDDEN PyObject * mpy_ma_str_array_prepare = NULL;
+NPY_VISIBILITY_HIDDEN PyObject * mpy_ma_str_array_wrap = NULL;
+NPY_VISIBILITY_HIDDEN PyObject * mpy_ma_str_array_finalize = NULL;
+NPY_VISIBILITY_HIDDEN PyObject * mpy_ma_str_buffer = NULL;
+NPY_VISIBILITY_HIDDEN PyObject * mpy_ma_str_ufunc = NULL;
+NPY_VISIBILITY_HIDDEN PyObject * mpy_ma_str_order = NULL;
+NPY_VISIBILITY_HIDDEN PyObject * mpy_ma_str_copy = NULL;
+NPY_VISIBILITY_HIDDEN PyObject * mpy_ma_str_dtype = NULL;
+NPY_VISIBILITY_HIDDEN PyObject * mpy_ma_str_ndmin = NULL;
 
 static int
 intern_strings(void)
 {
-    npy_ma_str_array = PyUString_InternFromString("__array__");
-    npy_ma_str_array_prepare = PyUString_InternFromString("__array_prepare__");
-    npy_ma_str_array_wrap = PyUString_InternFromString("__array_wrap__");
-    npy_ma_str_array_finalize = PyUString_InternFromString("__array_finalize__");
-    npy_ma_str_buffer = PyUString_InternFromString("__buffer__");
-    npy_ma_str_ufunc = PyUString_InternFromString("__numpy_ufunc__");
-    npy_ma_str_order = PyUString_InternFromString("order");
-    npy_ma_str_copy = PyUString_InternFromString("copy");
-    npy_ma_str_dtype = PyUString_InternFromString("dtype");
-    npy_ma_str_ndmin = PyUString_InternFromString("ndmin");
+    mpy_ma_str_array = PyUString_InternFromString("__array__");
+    mpy_ma_str_array_prepare = PyUString_InternFromString("__array_prepare__");
+    mpy_ma_str_array_wrap = PyUString_InternFromString("__array_wrap__");
+    mpy_ma_str_array_finalize = PyUString_InternFromString("__array_finalize__");
+    mpy_ma_str_buffer = PyUString_InternFromString("__buffer__");
+    mpy_ma_str_ufunc = PyUString_InternFromString("__numpy_ufunc__");
+    mpy_ma_str_order = PyUString_InternFromString("order");
+    mpy_ma_str_copy = PyUString_InternFromString("copy");
+    mpy_ma_str_dtype = PyUString_InternFromString("dtype");
+    mpy_ma_str_ndmin = PyUString_InternFromString("ndmin");
 
-    return npy_ma_str_array && npy_ma_str_array_prepare &&
-           npy_ma_str_array_wrap && npy_ma_str_array_finalize &&
-           npy_ma_str_buffer && npy_ma_str_ufunc &&
-           npy_ma_str_order && npy_ma_str_copy && npy_ma_str_dtype &&
-           npy_ma_str_ndmin;
+    return mpy_ma_str_array && mpy_ma_str_array_prepare &&
+           mpy_ma_str_array_wrap && mpy_ma_str_array_finalize &&
+           mpy_ma_str_buffer && mpy_ma_str_ufunc &&
+           mpy_ma_str_order && mpy_ma_str_copy && mpy_ma_str_dtype &&
+           mpy_ma_str_ndmin;
 }
 
 #if defined(NPY_PY3K)
@@ -523,7 +529,7 @@ PyMODINIT_FUNC PyInit_multiarray(void) {
 #define RETVAL
 PyMODINIT_FUNC initmultiarray(void) {
 #endif
-    PyObject *m, *d, *s;
+    PyObject *m, *d, *s, *obj_ndevices;
     PyObject *c_api = NULL;
 
     /* Init some variable */
@@ -540,16 +546,6 @@ PyMODINIT_FUNC initmultiarray(void) {
         goto err;
     }
 
-    /* Initialize C-API */
-    init_PyMicArray_API();
-#ifdef PyMicArray_API_USE_CAPSULE
-    c_api = PyCapsule_New((void *)PyMicArray_API, NULL, NULL);
-#else
-    c_api = PyCObject_FromVoidPtr((void *)PyMicArray_API, NULL);
-#endif
-    if (c_api != NULL) {
-        PyModule_AddObject(m, "_MICARRAY_CAPI", c_api);
-    }
 
     /* Import Numpy Array module */
     import_array();
@@ -613,8 +609,27 @@ PyMODINIT_FUNC initmultiarray(void) {
 
 #undef ADDCONST
 
-    Py_INCREF(&PyMicArray_Type);
-    PyModule_AddObject(m, "ndarray", (PyObject *)&PyMicArray_Type);
+    /* Initialize C-API */
+    init_PyMicArray_API();
+#ifdef PyMicArray_API_USE_CAPSULE
+    c_api = PyCapsule_New((void *)PyMicArray_API, NULL, NULL);
+#else
+    c_api = PyCObject_FromVoidPtr((void *)PyMicArray_API, NULL);
+#endif
+    if (c_api != NULL) {
+        PyDict_SetItemString(d, "_MICARRAY_CAPI", c_api);
+    }
+    Py_XDECREF(c_api);
+
+    //Py_INCREF(&PyMicArray_Type);
+    PyDict_SetItemString(d, "ndarray", (PyObject *)&PyMicArray_Type);
+
+    /* Add some other constants */
+    obj_ndevices = (PyObject *) PyInt_FromLong(num_devices);
+    if (obj_ndevices != NULL) {
+        PyDict_SetItemString(d, "ndevices", obj_ndevices);
+        Py_DECREF(obj_ndevices);
+    }
 
     if (!intern_strings()) {
         goto err;

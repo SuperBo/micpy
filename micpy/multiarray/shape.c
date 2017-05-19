@@ -13,6 +13,7 @@
 
 #include "npy_config.h"
 
+#define _MICARRAYMODULE
 #include "alloc.h"
 #include "arrayobject.h"
 #include "creators.h"

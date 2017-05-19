@@ -11,15 +11,14 @@
 
 #include "npy_config.h"
 
+#define _MICARRAYMODULE
 #include "arrayobject.h"
 #include "scalar.h"
 #include "creators.h"
 #include "array_assign.h"
 //#include "mapping.h"
-#include "lowlevel_strided_loops.h"
-
-
 #include "convert.h"
+#include "lowlevel_strided_loops.h"
 
 int
 fallocate(int fd, int mode, off_t offset, off_t len);

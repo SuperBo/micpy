@@ -1,5 +1,5 @@
-#ifndef _MPY_PRIVATE__ARRAY_ASSIGN_H_
-#define _MPY_PRIVATE__ARRAY_ASSIGN_H_
+#ifndef _MPY_PRIVATE_ARRAY_ASSIGN_H_
+#define _MPY_PRIVATE_ARRAY_ASSIGN_H_
 
 /*
  * An array assignment function for copying arrays, treating the

@@ -9,6 +9,7 @@
 #include <numpy/arrayscalars.h>
 #include <numpy/npy_3kcompat.h>
 
+#define _MICARRAYMODULE
 #include "common.h"
 #include "conversion_utils.h"
 

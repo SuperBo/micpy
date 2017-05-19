@@ -44,6 +44,7 @@ typedef struct _OffloadArrayObject {
 
 #define MPY_SIZEOF_PYMICARRAYOBJECT (sizeof(PyMicArrayObject))
 
+#ifdef _MICARRAYMODULE
 /*API*/
 NPY_NO_EXPORT int
 PyMicArray_SetBaseObject(PyMicArrayObject *arr, PyObject *obj);
@@ -62,12 +63,14 @@ PyMicArray_FailUnlessWriteable(PyMicArrayObject *obj, const char *name);
  */
 static const int NPY_ARRAY_WARN_ON_WRITE = (1 << 31);
 
+extern PyTypeObject PyMicArray_Type;
+#endif
+
 /*
  * Some useful macro for PyMicArrayObject
  * Some of them use PyArray implementation
  */
 
-extern PyTypeObject PyMicArray_Type;
 #define PyMicArray_Check(op) PyObject_TypeCheck(op, &PyMicArray_Type)
 #define PyMicArray_CheckExact(op) (((PyObject*)(op))->ob_type == &PyMicArray_Type)
 

@@ -13,6 +13,7 @@
 #include "npy_import.h"
 #include "mem_overlap.h"
 
+#define _MICARRAYMODULE
 #include "common.h"
 #include "arrayobject.h"
 #include "creators.h"

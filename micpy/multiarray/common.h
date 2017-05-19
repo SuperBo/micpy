@@ -9,13 +9,14 @@
 #define NMAXDEVICES 2
 #endif
 
-extern int num_devices;
-#define NDEVICES num_devices
-#define N_DEVICES num_devices
+NPY_NO_EXPORT int PyMicArray_GetCurrentDevice(void);
+NPY_NO_EXPORT int PyMicArray_GetNumDevices(void);
 
-extern int current_device;
-#define CURRENT_DEVICE current_device
-#define DEFAULT_DEVICE current_device
+#define NDEVICES (PyMicArray_GetNumDevices())
+#define N_DEVICES (PyMicArray_GetNumDevices())
+
+#define CURRENT_DEVICE (PyMicArray_GetCurrentDevice())
+#define DEFAULT_DEVICE (PyMicArray_GetCurrentDevice())
 
 #define error_converting(x)  (((x) == -1) && PyErr_Occurred())
 
