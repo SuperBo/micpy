@@ -8,17 +8,37 @@ from micpy.distutils.build_offload import build_ext as build_ext_offload
 numpy_private_dir = join('numpy', 'private')
 multiarray_dir = join('micpy', 'multiarray')
 
-multiarray_sources = ['alloc.c', 'array_assign.c', 'arrayobject.c',
-                      'common.c', 'calculation.c', 'convert.c',
-                      'conversion_utils.c', 'creators.c', 'getset.c',
-                      'methods.c', 'shape.c', 'scalar.c', 'item_selection.c',
-                      'convert_datatype.c',
-                      'multiarraymodule.c']
-multiarray_sources = list(map(lambda f: join(multiarray_dir, f),
-                         multiarray_sources))
-# Add numpy/private/mem_overlap.c to sources
-multiarray_sources += [join(numpy_private_dir, 'mem_overlap.c'),
-                       join(numpy_private_dir, 'templ_common.h.src')]
+def add_multiarray_ext(config):
+    multiarray_sources = ['alloc.c', 'array_assign.c', 'arrayobject.c',
+            'common.c', 'calculation.c', 'convert.c',
+            'conversion_utils.c', 'creators.c', 'getset.c',
+            'methods.c', 'shape.c', 'scalar.c', 'item_selection.c',
+            'convert_datatype.c',
+            'multiarraymodule.c']
+    multiarray_sources = [join(multiarray_dir, f) for f in multiarray_sources]
+
+    #Add numpy/private/mem_overlap.c to sources
+    multiarray_sources += [join(numpy_private_dir, 'mem_overlap.c'),
+            join(numpy_private_dir, 'templ_common.h.src')]
+
+    #TODO: find a better way to define NMAXDEVICES
+    #hint: use micinfo to get number of devices
+    config.add_extension('multiarray',
+                        sources=multiarray_sources,
+                        define_macros=[('NMAXDEVICES', '2')])
+
+
+def add_umath_ext(config):
+    umath_dir = join('micpy', 'umath')
+    umath_sources = ['umathmodule.c', 'mufunc_object.c',
+            'output_creators.c', 'reduction.c',
+            'loops.c.src', 'simd.inc.src']
+    umath_sources = [join(umath_dir, f) for f in umath_sources]
+
+    config.add_extension('umath',
+                        sources=umath_sources,
+                        include_dirs=[])
+
 
 def configuration(parent_package='', top_path=None):
     from numpy.distutils.misc_util import \
@@ -26,14 +46,10 @@ def configuration(parent_package='', top_path=None):
 
     config = Configuration('micpy', parent_package, top_path)
 
-    #TODO: find a better way to define NMAXDEVICES
-    #hint: use micinfo to get number of devices
-    config.add_extension('multiarray',
-                        sources=multiarray_sources,
-                        define_macros=[('NMAXDEVICES', '2')],
-                        include_dirs=[multiarray_dir,
-                                      numpy_private_dir],
-                        runtime_library_dirs=[])
+    config.add_include_dirs([numpy_private_dir, 'micpy'])
+
+    add_multiarray_ext(config)
+    add_umath_ext(config)
 
     return config
 
