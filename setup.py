@@ -1,12 +1,25 @@
 #!/usr/bin/env python
 
 from __future__ import absolute_import, print_function
+import os.path
 from os.path import join
+from distutils.dep_util import newer
 
 from micpy.distutils.build_offload import build_ext as build_ext_offload
+from micpy.distutils.build_offload_lib import build_clib as build_clib_offload
+from micpy.code_generators import generate_umath as gen_umath
 
 numpy_private_dir = join('numpy', 'private')
 multiarray_dir = join('micpy', 'multiarray')
+mpymath_dir = join('micpy', 'mpymath')
+codegen_dir = join('micpy', 'code_generators')
+
+
+private_npy_defines = [('HAVE_ENDIAN_H', 1),
+            ('HAVE_COMPLEX_H', 1),
+            ('NPY_USE_C99_COMPLEX', 1),
+            ('HAVE_LDOUBLE_INTEL_EXTENDED_16_BYTES_LE', 1)]
+
 
 def add_multiarray_ext(config):
     multiarray_sources = ['alloc.c', 'array_assign.c', 'arrayobject.c',
@@ -25,19 +38,50 @@ def add_multiarray_ext(config):
     #hint: use micinfo to get number of devices
     config.add_extension('multiarray',
                         sources=multiarray_sources,
-                        define_macros=[('NMAXDEVICES', '2')])
+                        define_macros=private_npy_defines +
+                                [('NMAXDEVICES', '2')])
+
+
+def add_mpymath_lib(config):
+    sources = ['non_standards.h.src', 'ieee754.c.src',
+                'mpy_math_complex.c.src']
+    mpymath_sources = [join(mpymath_dir, f) for f in sources]
+
+    config.add_library("mpymath", sources=mpymath_sources,
+                        include_dirs=[mpymath_dir],
+                        macros=private_npy_defines)
 
 
 def add_umath_ext(config):
+    def generate_umath_c(ext, build_dir):
+        config.add_include_dirs(build_dir)
+        target = join(build_dir, '__umath_generated.c')
+        dir = os.path.dirname(target)
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+        script = join(codegen_dir, 'generate_umath.py')
+        if newer(script, target):
+            f = open(target, 'w')
+            f.write(gen_umath.make_code(gen_umath.defdict,
+                                        gen_umath.__file__))
+            f.close()
+        return []
+
     umath_dir = join('micpy', 'umath')
+
     umath_sources = ['umathmodule.c', 'mufunc_object.c',
             'output_creators.c', 'reduction.c',
-            'loops.c.src', 'simd.inc.src']
+            'funcs.inc.src', 'loops.h.src', 'loops.c.src',
+            'simd.inc.src']
     umath_sources = [join(umath_dir, f) for f in umath_sources]
+    umath_sources.append(join(mpymath_dir, 'non_standards.h.src'))
+    umath_sources.append(generate_umath_c)
 
     config.add_extension('umath',
                         sources=umath_sources,
-                        include_dirs=[])
+                        include_dirs=[umath_dir, mpymath_dir],
+                        libraries=['mpymath'],
+                        define_macros=private_npy_defines)
 
 
 def configuration(parent_package='', top_path=None):
@@ -49,6 +93,7 @@ def configuration(parent_package='', top_path=None):
     config.add_include_dirs([numpy_private_dir, 'micpy'])
 
     add_multiarray_ext(config)
+    add_mpymath_lib(config)
     add_umath_ext(config)
 
     return config
@@ -64,4 +109,5 @@ if __name__ == '__main__':
           url='https://github.com/SuperBo/micpy',
           packages=['micpy'],
           configuration=configuration,
-          cmdclass={'build_ext': build_ext_offload})
+          cmdclass={'build_ext': build_ext_offload,
+                    'build_clib': build_clib_offload})
