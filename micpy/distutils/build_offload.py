@@ -5,6 +5,7 @@ from __future__ import division, absolute_import, print_function
 
 import platform
 
+from numpy.distutils import log
 from numpy.distutils.command.build_ext import build_ext as old_build_ext
 from numpy.distutils.misc_util import filter_sources, has_f_sources, \
      has_cxx_sources, get_ext_source_files, \
@@ -21,6 +22,26 @@ class build_ext(old_build_ext):
             return
 
         self.run_command('build_src')
+
+        if self.distribution.has_c_libraries():
+            if self.inplace:
+                if self.distribution.have_run.get('build_clib'):
+                    log.warn('build_clib already run, it is too late to ' \
+                            'ensure in-place build of build_clib')
+                    build_clib = self.distribution.get_command_obj('build_clib')
+                else:
+                    build_clib = self.distribution.get_command_obj('build_clib')
+                    build_clib.inplace = 1
+                    build_clib.ensure_finalized()
+                    build_clib.run()
+                    self.distribution.have_run['build_clib'] = 1
+
+            else:
+                self.run_command('build_clib')
+                build_clib = self.get_finalized_command('build_clib')
+            self.library_dirs.append(build_clib.build_clib)
+        else:
+            build_clib = None
 
         # Initialize C compiler:
         if platform.system() == 'Windows':
@@ -40,6 +61,21 @@ class build_ext(old_build_ext):
         self.compiler.customize_cmd(self)
         self.compiler.show_customization()
 
+        # Create mapping of libraries built by build_clib:
+        clibs = {}
+        if build_clib is not None:
+            for libname, build_info in build_clib.libraries or []:
+                if libname in clibs and clibs[libname] != build_info:
+                    log.warn('library %r defined more than once,'\
+                             ' overwriting build_info\n%s... \nwith\n%s...' \
+                             % (libname, repr(clibs[libname])[:300], repr(build_info)[:300]))
+                clibs[libname] = build_info
+        # .. and distribution libraries:
+        for libname, build_info in self.distribution.libraries or []:
+            if libname in clibs:
+                # build_clib libraries have a precedence before distribution ones
+                continue
+            clibs[libname] = build_info
 
         # Determine if C++/Fortran 77/Fortran 90 compilers are needed.
         # Update extension libraries, library_dirs, and macros.
