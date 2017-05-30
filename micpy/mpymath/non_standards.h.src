@@ -6,19 +6,60 @@
 
 #include <numpy/npy_common.h>
 
+#define mpy_degrees mpy_rad2deg
+#define mpy_degreesf mpy_rad2degf
+#define mpy_degreesl mpy_rad2degl
+
+#define mpy_radians mpy_deg2rad
+#define mpy_radiansf mpy_deg2radf
+#define mpy_radiansl mpy_deg2radl
+
+#pragma omp declare target
 /**begin repeat
  * #type = npy_float, npy_double, npy_longdouble#
  * #c = f, ,l#
  * #C = F, ,L#
  */
 
+inline @type@ mpy_heaviside@c@(@type@ x, @type@ h0)
+{
+    if (isnan(x)) {
+        return (@type@) MPY_NAN;
+    }
+    else if (x == 0) {
+        return h0;
+    }
+    else if (x < 0) {
+        return (@type@) 0.0;
+    }
+    else {
+        return (@type@) 1.0;
+    }
+}
+
+
+#define RAD2DEG  (180.0@c@/NPY_PI@c@)
+#define DEG2RAD  (NPY_PI@c@/180.0@c@)
+
+inline @type@ mpy_rad2deg@c@(@type@ x)
+{
+    return x*RAD2DEG;
+}
+
+inline @type@ mpy_deg2rad@c@(@type@ x)
+{
+    return x*DEG2RAD;
+}
+
+#undef RAD2DEG
+#undef DEG2RAD
+
 /*
  * Python version of divmod.
  *
  * The implementation is mostly copied from cpython 3.5.
  */
-
-NPY_INLINE @type@
+inline @type@
 mpy_divmod@c@(@type@ a, @type@ b, @type@ *modulus)
 {
     @type@ div, mod, floordiv;
@@ -62,3 +103,5 @@ mpy_divmod@c@(@type@ a, @type@ b, @type@ *modulus)
 }
 
 /**end repeat**/
+#pragma omp end declare target
+

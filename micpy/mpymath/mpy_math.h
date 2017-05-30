@@ -221,6 +221,6 @@ npy_float mpy_spacingf(npy_float x);
 npy_double mpy_spacing(npy_double x);
 npy_longdouble mpy_spacingl(npy_longdouble x);
 
-#pragma omp declare target
+#pragma omp end declare target
 
 #endif
