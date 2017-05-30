@@ -1,6 +1,8 @@
 #ifndef _MPY_MATH_HELPER_
 #define _MPY_MATH_HELPER_
 
+#include "halffloat.h"
+
 #ifndef INFINITY
 static const union { npy_uint32 __i; float __f;} __binff = {0x7f800000UL};
 #define INFINITY (__binff.__f)
@@ -35,6 +37,135 @@ static const union { npy_uint32 __i; float __f;} __bnzerof = {0x80000000UL};
 #define MPY_NANL ((npy_longdouble)MPY_NANF)
 #define MPY_PZEROL ((npy_longdouble)MPY_PZEROF)
 #define MPY_NZEROL ((npy_longdouble)MPY_NZEROF)
+
+/*
+ * C99 double math funcs
+ */
+#define mpy_sin sin
+#define mpy_cos cos
+#define mpy_tan tan
+#define mpy_sinh sinh
+#define mpy_cosh cosh
+#define mpy_tanh tanh
+
+#define mpy_asin asin
+#define mpy_acos acos
+#define mpy_atan atan
+
+#define mpy_log log
+#define mpy_log10 log10
+#define mpy_exp exp
+#define mpy_sqrt sqrt
+#define mpy_cbrt cbrt
+
+#define mpy_fabs fabs
+#define mpy_ceil ceil
+#define mpy_fmod fmod
+#define mpy_floor floor
+
+#define mpy_expm1 expm1
+#define mpy_log1p log1p
+#define mpy_hypot hypot
+#define mpy_acosh acosh
+#define mpy_asinh asinh
+#define mpy_atanh atanh
+#define mpy_rint rint
+#define mpy_trunc trunc
+#define mpy_exp2 exp2
+#define mpy_log2 log2
+
+#define mpy_atan2 atan2
+#define mpy_pow pow
+#define mpy_modf modf
+#define mpy_frexp frexp
+#define mpy_ldexp ldexp
+
+#define mpy_copysign copysign
+#define mpy_nextafter nextafter
+
+/*
+ * float C99 math functions
+ */
+#define mpy_sinf sinf
+#define mpy_cosf cosf
+#define mpy_tanf tanf
+#define mpy_sinhf sinhf
+#define mpy_coshf coshf
+#define mpy_tanhf tanhf
+#define mpy_fabsf fabsf
+#define mpy_floorf floorf
+#define mpy_ceilf ceilf
+#define mpy_rintf rintf
+#define mpy_truncf truncf
+#define mpy_sqrtf sqrtf
+#define mpy_cbrtf cbrtf
+#define mpy_log10f log10f
+#define mpy_logf logf
+#define mpy_expf expf
+#define mpy_expm1f expm1f
+#define mpy_asinf asinf
+#define mpy_acosf acosf
+#define mpy_atanf atanf
+#define mpy_asinhf asinhf
+#define mpy_acoshf acoshf
+#define mpy_atanhf atanhf
+#define mpy_log1pf log1pf
+#define mpy_exp2f exp2f
+#define mpy_log2f log2f
+
+#define mpy_atan2f atan2f
+#define mpy_hypotf hypotf
+#define mpy_powf powf
+#define mpy_fmodf fmodf
+
+#define mpy_modff modff
+#define mpy_frexpf frexpf
+#define mpy_ldexpf ldexpf
+
+#define mpy_copysignf copysignf
+#define mpy_nextafterf nextafterf
+
+/*
+ * long double C99 math functions
+ */
+#define mpy_sinl sinl
+#define mpy_cosl cosl
+#define mpy_tanl tanl
+#define mpy_sinhl sinhl
+#define mpy_coshl coshl
+#define mpy_tanhl tanhl
+#define mpy_fabsl fabsl
+#define mpy_floorl floorl
+#define mpy_ceill ceill
+#define mpy_rintl rintl
+#define mpy_truncl truncl
+#define mpy_sqrtl sqrtl
+#define mpy_cbrtl cbrtl
+#define mpy_log10l log10l
+#define mpy_logl logl
+#define mpy_expl expl
+#define mpy_expm1l expm1l
+#define mpy_asinl asinl
+#define mpy_acosl acosl
+#define mpy_atanl atanl
+#define mpy_asinhl asinhl
+#define mpy_acoshl acoshl
+#define mpy_atanhl atanhl
+#define mpy_log1pl log1pl
+#define mpy_exp2l exp2l
+#define mpy_log2l log2l
+
+#define mpy_atan2l atan2l
+#define mpy_hypotl hypotl
+#define mpy_powl powl
+#define mpy_fmodl fmodl
+
+#define mpy_modfl modfl
+#define mpy_frexpl frexpl
+#define mpy_ldexpl ldexpl
+
+#define mpy_copysignl copysignl
+#define mpy_nextafterl nextafterl
 
 #pragma omp declare target
 /*

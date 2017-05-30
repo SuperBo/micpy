@@ -54,6 +54,64 @@ inline @type@ mpy_deg2rad@c@(@type@ x)
 #undef RAD2DEG
 #undef DEG2RAD
 
+#define LOGE2    NPY_LOGE2@c@
+#define LOG2E    NPY_LOG2E@c@
+
+inline @type@ mpy_log2_1p@c@(@type@ x)
+{
+    return LOG2E*log1p@c@(x);
+}
+
+inline @type@ mpy_exp2_m1@c@(@type@ x)
+{
+    return expm1@c@(LOGE2*x);
+}
+
+inline @type@ mpy_logaddexp@c@(@type@ x, @type@ y)
+{
+    if (x == y) {
+        /* Handles infinities of the same sign without warnings */
+        return x + LOGE2;
+    }
+    else {
+        const @type@ tmp = x - y;
+        if (tmp > 0) {
+            return x + mpy_log1p@c@(exp@c@(-tmp));
+        }
+        else if (tmp <= 0) {
+            return y + mpy_log1p@c@(exp@c@(tmp));
+        }
+        else {
+            /* NaNs */
+            return tmp;
+        }
+    }
+}
+
+inline @type@ mpy_logaddexp2@c@(@type@ x, @type@ y)
+{
+    if (x == y) {
+        /* Handles infinities of the same sign without warnings */
+        return x + 1;
+    }
+    else {
+        const @type@ tmp = x - y;
+        if (tmp > 0) {
+            return x + mpy_log2_1p@c@(exp2@c@(-tmp));
+        }
+        else if (tmp <= 0) {
+            return y + mpy_log2_1p@c@(exp2@c@(tmp));
+        }
+        else {
+            /* NaNs */
+            return tmp;
+        }
+    }
+}
+
+#undef LOGE2
+#undef LOG2E
+
 /*
  * Python version of divmod.
  *
