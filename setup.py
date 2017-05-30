@@ -44,7 +44,7 @@ def add_multiarray_ext(config):
 
 def add_mpymath_lib(config):
     sources = ['non_standards.h.src', 'ieee754.c.src',
-                'mpy_math_complex.c.src']
+                'mpy_math_complex.c.src', 'halffloat.c']
     mpymath_sources = [join(mpymath_dir, f) for f in sources]
 
     config.add_library("mpymath", sources=mpymath_sources,
