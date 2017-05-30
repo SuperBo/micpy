@@ -18,13 +18,15 @@
 #include "lowlevel_strided_loops.h"
 #include "numpy/npy_common.h"
 /* for NO_FLOATING_POINT_SUPPORT */
-#include "numpy/ufuncobject.h"
-#include "numpy/npy_math.h"
+//#include "numpy/ufuncobject.h"
+//#include "numpy/npy_math.h"
 #include <immintrin.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <float.h>
 #include <string.h> /* for memcpy */
+
+#pragma omp declare target
 
 /* Figure out the right abs function for pointer addresses */
 static NPY_INLINE npy_intp
@@ -149,7 +151,7 @@ run_@name@_simd_@func@_@TYPE@(char **args, npy_intp *dimensions, npy_intp *steps
 #if @minmax@ && (defined NO_FLOATING_POINT_SUPPORT)
     return 0;
 #else
-#if @vector@ && defined MPY_HAVE_imci_INTRINSICS
+#if @vector@ && defined MPY_HAVE_IMCI_INTRINSICS
     if (@check@(sizeof(@type@), 64)) {
         imci_@func@_@TYPE@((@type@*)args[1], (@type@*)args[0], dimensions[0]);
         return 1;
@@ -397,7 +399,7 @@ static NPY_INLINE npy_double imci_horizontal_@VOP@___m512d(__m512d v)
  *  #nan = NPY_NANF, NPY_NAN#
  *  #double = 0, 1#
  *  #cast = _mm_castps_si128, _mm_castpd_si128#
- *  #vesize = 16, 8#
+ *  #vesize = 64, 32#
  */
 
 
@@ -563,7 +565,7 @@ static void
 imci_signbit_@TYPE@(npy_bool * op, @type@ * ip1, npy_intp n)
 {
     LOOP_BLOCK_ALIGN_VAR(ip1, @type@, 64) {
-        op[i] = npy_signbit(ip1[i]) != 0;
+        op[i] = signbit(ip1[i]) != 0;
     }
     LOOP_BLOCKED(@type@, 64) {
         @vtype@ a = @vpre@_load_@vsuf@(&ip1[i]);
@@ -580,7 +582,7 @@ imci_signbit_@TYPE@(npy_bool * op, @type@ * ip1, npy_intp n)
         }
     }
     LOOP_BLOCKED_END {
-        op[i] = npy_signbit(ip1[i]) != 0;
+        op[i] = signbit(ip1[i]) != 0;
     }
 }
 
@@ -659,7 +661,7 @@ sse2_@kind@_@TYPE@(npy_bool * op, @type@ * ip1, npy_intp n)
 
 /* sets invalid fpu flag on QNaN for consistency with packed compare */
 static NPY_INLINE int
-sse2_ordered_cmp_@kind@_@TYPE@(const @type@ a, const @type@ b)
+imci_ordered_cmp_@kind@_@TYPE@(const @type@ a, const @type@ b)
 {
     @vtype@ one = @vpre@_set1_@vsuf@(1);
     @type@ tmp;
@@ -673,7 +675,7 @@ sse2_ordered_cmp_@kind@_@TYPE@(const @type@ a, const @type@ b)
 static void
 sse2_binary_@kind@_@TYPE@(npy_bool * op, @type@ * ip1, @type@ * ip2, npy_intp n)
 {
-    LOOP_BLOCK_ALIGN_VAR(ip1, @type@, 16) {
+    LOOP_BLOCK_ALIGN_VAR(ip1, @type@, 64) {
         op[i] = sse2_ordered_cmp_@kind@_@TYPE@(ip1[i], ip2[i]);
     }
     LOOP_BLOCKED(@type@, 64) {
@@ -745,30 +747,31 @@ sse2_binary_scalar2_@kind@_@TYPE@(npy_bool * op, @type@ * ip1, @type@ * ip2, npy
 }
 /**end repeat1**/
 
-static void
-sse2_sqrt_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
-{
-    /* align output to 16 bytes */
-    LOOP_BLOCK_ALIGN_VAR(op, @type@, 16) {
-        op[i] = @scalarf@(ip[i]);
-    }
-    assert(n < (16 / sizeof(@type@)) || npy_is_aligned(&op[i], 16));
-    if (npy_is_aligned(&ip[i], 16)) {
-        LOOP_BLOCKED(@type@, 16) {
-            @vtype@ d = @vpre@_load_@vsuf@(&ip[i]);
-            @vpre@_store_@vsuf@(&op[i], @vpre@_sqrt_@vsuf@(d));
-        }
-    }
-    else {
-        LOOP_BLOCKED(@type@, 16) {
-            @vtype@ d = @vpre@_loadu_@vsuf@(&ip[i]);
-            @vpre@_store_@vsuf@(&op[i], @vpre@_sqrt_@vsuf@(d));
-        }
-    }
-    LOOP_BLOCKED_END {
-        op[i] = @scalarf@(ip[i]);
-    }
-}
+/*TODO: no native support for sqrt */
+/* static void */
+/* imci_sqrt_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n) */
+/* { */
+/*     /1* align output to 64 bytes *1/ */
+/*     LOOP_BLOCK_ALIGN_VAR(op, @type@, 64) { */
+/*         op[i] = @scalarf@(ip[i]); */
+/*     } */
+/*     assert(n < (64 / sizeof(@type@)) || npy_is_aligned(&op[i], 64)); */
+/*     if (npy_is_aligned(&ip[i], 64)) { */
+/*         LOOP_BLOCKED(@type@, 64) { */
+/*             @vtype@ d = @vpre@_load_@vsuf@(&ip[i]); */
+/*             @vpre@_store_@vsuf@(&op[i], @vpre@_sqrt_@vsuf@(d)); */
+/*         } */
+/*     } */
+/*     else { */
+/*         LOOP_BLOCKED(@type@, 64) { */
+/*             @vtype@ d = @vpre@_loadu_@vsuf@(&ip[i]); */
+/*             @vpre@_store_@vsuf@(&op[i], @vpre@_sqrt_@vsuf@(d)); */
+/*         } */
+/*     } */
+/*     LOOP_BLOCKED_END { */
+/*         op[i] = @scalarf@(ip[i]); */
+/*     } */
+/* } */
 
 
 static NPY_INLINE
@@ -1006,6 +1009,8 @@ sse2_@kind@_BOOL(@type@ * op, @type@ * ip, const npy_intp n)
 
 /**end repeat**/
 
-#endif /* NPY_HAVE_SSE2_INTRINSICS */
+#endif /* MPY_HAVE_IMCI_INTRINSICS */
+
+#pragma omp end declare target
 
 #endif

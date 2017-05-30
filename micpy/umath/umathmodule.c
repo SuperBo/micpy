@@ -15,12 +15,12 @@
  * This is a mess and it would be nice to fix it. It has nothing to do with
  * __ufunc_api.c
  */
-#define NPY_NO_DEPRECATED_API NPY_API_VERSION
 
 #include "Python.h"
 
+#define NPY_NO_DEPRECATED_API NPY_API_VERSION
 #define PY_ARRAY_UNIQUE_SYMBOL _mpy_umathmodule_ARRAY_API
-
+#define PY_UFUNC_UNIQUE_SYMBOL _mpy_umathmodule_UFUNC_API
 #include <numpy/numpyconfig.h>
 #include <numpy/arrayobject.h>
 #include <numpy/ufuncobject.h>
@@ -31,6 +31,8 @@
 #define PyMicArray_API_UNIQUE_NAME _mpy_umathmodule_MICARRAY_API
 #include <multiarray/multiarray_api.h>
 #include <multiarray/arrayobject.h>
+#include <mpymath/mpy_math.h>
+#include <non_standards.h>
 
 #define _MICARRAY_UMATHMODULE
 #include "mufunc_object.h"
@@ -41,12 +43,75 @@
  **                    INCLUDE GENERATED CODE                               **
  *****************************************************************************
  */
-//#include "funcs.inc"
-//#include "loops.h"
-//#include "__umath_generated.c"
+#include "funcs.inc"
+#include "loops.h"
 //#include "ufunc_api_creator.h"
 
 //NPY_NO_EXPORT int initscalarmath(PyObject *);
+
+/*
+ *****************************************************************************
+ **                            INIT SOME SPECIAL MUFUNCS                    **
+ *****************************************************************************
+ */
+static PyUFunc_TypeResolutionFunc *npy_type_resolvers[12];
+
+#define PyUFunc_OnesLikeTypeResolver (*(npy_type_resolvers[0]))
+#define PyUFunc_AbsoluteTypeResolver (*(npy_type_resolvers[1]))
+#define PyUFunc_AdditionTypeResolver (*(npy_type_resolvers[2]))
+#define PyUFunc_SubtractionTypeResolver (*(npy_type_resolvers[3]))
+#define PyUFunc_MultiplicationTypeResolver (*(npy_type_resolvers[4]))
+#define PyUFunc_DivisionTypeResolver (*(npy_type_resolvers[5]))
+#define PyUFunc_SimpleBinaryComparisonTypeResolver (*(npy_type_resolvers[6]))
+#define PyUFunc_NegativeTypeResolver (*(npy_type_resolvers[7]))
+#define PyUFunc_SimpleUnaryOperationTypeResolver (*(npy_type_resolvers[8]))
+#define PyUFunc_SimpleBinaryOperationTypeResolver (*(npy_type_resolvers[9]))
+#define PyUFunc_MixedDivisionTypeResolver (*(npy_type_resolvers[10]))
+#define PyUFunc_IsNaTTypeResolver (*(npy_type_resolvers[11]))
+
+#include "__umath_generated.c"
+
+#define get_set_resolvers(idx, name) \
+    if (!PyObject_HasAttrString(umath_module, name)) {\
+        return -1;\
+    }\
+    func = PyObject_GetAttrString(umath_module, name);\
+    npy_type_resolvers[idx] = ((PyUFuncObject *)func)->type_resolver;\
+    Py_DECREF(func)
+
+static int
+PyMUFunc_InitSpecialTypeResolvers(PyObject *umath_module)
+{
+    PyObject *func;
+
+    get_set_resolvers(0, "_ones_like");
+    get_set_resolvers(1, "absolute");
+    get_set_resolvers(2, "add");
+    get_set_resolvers(3, "subtract");
+    get_set_resolvers(4, "multiply");
+    get_set_resolvers(5, "floor_divide");
+    get_set_resolvers(6, "equal");
+    get_set_resolvers(7, "negative");
+    get_set_resolvers(8, "sign");
+    get_set_resolvers(9, "maximum");
+    get_set_resolvers(10, "divide");
+
+    if (PyObject_HasAttrString(umath_module, "isnat")) {
+        func = PyObject_GetAttrString(umath_module, "isnat");
+        npy_type_resolvers[11] = ((PyUFuncObject *)func)->type_resolver;
+        Py_DECREF(func);
+    }
+    else {
+        // Fall back to isnan if there is no isnat
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "isnat is not supported by "
+                "installed numpy, use isnan", 1) < 0)
+            return -1;
+        get_set_resolvers(11, "isnan");
+    }
+
+    return 0;
+}
+
 
 /*
  *****************************************************************************
@@ -102,7 +167,7 @@ PyMODINIT_FUNC PyInit_umath(void)
 PyMODINIT_FUNC initumath(void)
 #endif
 {
-    PyObject *m, *d, *s, *s2, *c_api;
+    PyObject *m, *d, *s, *s2, *c_api, *umath;
     int UFUNC_FLOATING_POINT_SUPPORT = 1;
 
 #ifdef NO_UFUNC_FLOATING_POINT_SUPPORT
@@ -118,23 +183,27 @@ PyMODINIT_FUNC initumath(void)
         return RETVAL;
     }
 
-    /* Import the array */
-    if (_import_array() < 0) {
-        if (!PyErr_Occurred()) {
-            PyErr_SetString(PyExc_ImportError,
-                            "mumath failed: Could not import array core.");
-        }
+    /* Import NPY_ARRAY API */
+    import_array();
+
+    /* Import UFunc API */
+    import_ufunc();
+
+    /* Workaround to get numpy internal type resolver */
+    umath = PyDict_GetItemString(PyImport_GetModuleDict(), "numpy.core.umath");
+    if (umath == NULL) {
+        PyErr_SetString(PyExc_RuntimeError,
+                            "Can not get numpy.core.umath from sys.modules");
+        return RETVAL;
+    }
+    if (PyMUFunc_InitSpecialTypeResolvers(umath) < 0) {
+        PyErr_SetString(PyExc_RuntimeError,
+                            "Get internal type resolvers from numpy failed");
         return RETVAL;
     }
 
     /* Import micarray */
-    if (_import_pymicarray() < 0) {
-        if (!PyErr_Occurred()) {
-             PyErr_SetString(PyExc_ImportError,
-                            "mumath failed: Could not import micarray core.");
-        }
-        return RETVAL;
-    }
+    import_micarray();
 
     /* Initialize the types */
     if (PyType_Ready(&PyMUFunc_Type) < 0)
@@ -161,8 +230,7 @@ PyMODINIT_FUNC initumath(void)
     Py_DECREF(s);
 
     /* Load the ufunc operators into the array module's namespace */
-    /* TODO: finish this work */
-    //InitOperators(d);
+    InitOperators(d);
 
 
 #define ADDCONST(str) PyModule_AddIntConstant(m, #str, UFUNC_##str)

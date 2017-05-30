@@ -31,6 +31,8 @@
 
 #define PY_ARRAY_UNIQUE_SYMBOL _mpy_umathmodule_ARRAY_API
 #define NO_IMPORT_ARRAY
+#define PY_UFUNC_UNIQUE_SYMBOL _mpy_umathmodule_UFUNC_API
+#define NO_IMPORT_UFUNC
 
 #include <numpy/npy_3kcompat.h>
 #include <numpy/arrayobject.h>

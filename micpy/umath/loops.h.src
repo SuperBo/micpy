@@ -3,8 +3,8 @@
  * vim:syntax=c
  */
 
-#ifndef _NPY_UMATH_LOOPS_H_
-#define _NPY_UMATH_LOOPS_H_
+#ifndef _MPY_UMATH_LOOPS_H_
+#define _MPY_UMATH_LOOPS_H_
 
 #define BOOL_invert BOOL_logical_not
 #define BOOL_negative BOOL_logical_not
@@ -20,6 +20,42 @@
 #define BOOL_fmax BOOL_maximum
 #define BOOL_fmin BOOL_minimum
 
+#pragma omp declare target
+
+/*
+ *****************************************************************************
+ **                             MUFUNC API                                  **
+ *****************************************************************************
+ */
+
+/**begin repeat
+ * #c = e, f, d, g, F, D, G#
+ **/
+
+NPY_NO_EXPORT void
+PyMUFunc_@c@_@c@(char **args, npy_intp *dimensions,
+                    npy_intp *steps, void *func);
+
+NPY_NO_EXPORT void
+PyMUFunc_@c@@c@_@c@(char **args, npy_intp *dimensions,
+                    npy_intp *steps, void *func);
+
+/**end repeat**/
+
+/**begin repeat
+ * #c0 = e, e, f, F#
+ * #c1 = f, d, d, D#
+ **/
+
+NPY_NO_EXPORT void
+PyMUFunc_@c0@_@c0@_As_@c1@_@c1@(char **args, npy_intp *dimensions,
+                                npy_intp *steps, void *func);
+
+NPY_NO_EXPORT void
+PyMUFunc_@c0@@c0@_@c0@_As_@c1@@c1@_@c1@(char **args, npy_intp *dimensions,
+                                npy_intp *steps, void *func);
+
+/**end repeat**/
 
 /*
  *****************************************************************************
@@ -61,8 +97,11 @@ BOOL__ones_like(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UN
 NPY_NO_EXPORT void
 @S@@TYPE@__ones_like(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(data));
 
+NPY_NO_EXPORT void
+@S@@TYPE@_positive(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
+
 /**begin repeat2
- * #isa = , _avx2#
+ * #isa = , _imci#
  */
 
 NPY_NO_EXPORT void
@@ -125,31 +164,23 @@ NPY_NO_EXPORT void
 NPY_NO_EXPORT void
 @S@@TYPE@_fmod(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
 
+NPY_NO_EXPORT void
+@S@@TYPE@_absolute(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
+
+NPY_NO_EXPORT void
+@S@@TYPE@_sign(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
+
+NPY_NO_EXPORT void
+@S@@TYPE@_divide(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
+
+NPY_NO_EXPORT void
+@S@@TYPE@_remainder(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
+
+NPY_NO_EXPORT void
+@S@@TYPE@_divmod(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
+
 /**end repeat1**/
 
-NPY_NO_EXPORT void
-U@TYPE@_absolute(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
-
-NPY_NO_EXPORT void
-@TYPE@_absolute(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
-
-NPY_NO_EXPORT void
-U@TYPE@_sign(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
-
-NPY_NO_EXPORT void
-@TYPE@_sign(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
-
-NPY_NO_EXPORT void
-@TYPE@_divide(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
-
-NPY_NO_EXPORT void
-U@TYPE@_divide(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
-
-NPY_NO_EXPORT void
-@TYPE@_remainder(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
-
-NPY_NO_EXPORT void
-U@TYPE@_remainder(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
 /**end repeat**/
 
 /*
@@ -228,6 +259,9 @@ NPY_NO_EXPORT void
 @TYPE@_remainder(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
 
 NPY_NO_EXPORT void
+@TYPE@_divmod(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
+
+NPY_NO_EXPORT void
 @TYPE@_square(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(data));
 
 NPY_NO_EXPORT void
@@ -246,6 +280,8 @@ NPY_NO_EXPORT void
 NPY_NO_EXPORT void
 @TYPE@_negative(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
 
+NPY_NO_EXPORT void
+@TYPE@_positive(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
 
 NPY_NO_EXPORT void
 @TYPE@_sign(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
@@ -395,6 +431,9 @@ NPY_NO_EXPORT void
 TIMEDELTA_negative(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
 
 NPY_NO_EXPORT void
+TIMEDELTA_positive(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
+
+NPY_NO_EXPORT void
 TIMEDELTA_absolute(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
 
 NPY_NO_EXPORT void
@@ -403,6 +442,9 @@ TIMEDELTA_sign(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNU
 /**begin repeat
  * #TYPE = DATETIME, TIMEDELTA#
  */
+
+NPY_NO_EXPORT void
+@TYPE@_isnat(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
 
 NPY_NO_EXPORT void
 @TYPE@__ones_like(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(data));
@@ -483,21 +525,14 @@ TIMEDELTA_mm_d_divide(char **args, npy_intp *dimensions, npy_intp *steps, void *
  *****************************************************************************
  */
 
-/**begin repeat
- * #kind = equal, not_equal, greater, greater_equal, less, less_equal#
- * #OP = EQ, NE, GT, GE, LT, LE#
- */
-NPY_NO_EXPORT void
-OBJECT_@kind@(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
-/**end repeat**/
-
-NPY_NO_EXPORT void
-OBJECT_sign(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
+/* Not Support object types right now */
 
 /*
  *****************************************************************************
  **                              END LOOPS                                  **
  *****************************************************************************
  */
+
+#pragma omp end declare target
 
 #endif

@@ -1,8 +1,16 @@
-#define PyMicArray_UNIQUE_NAME MICPY_UMATH_MICARRAY_API
+#include <Python.h>
+
+#define NPY_NO_DEPRECATED_API NPY_API_VERSION
+#define PY_ARRAY_UNIQUE_SYMBOL _mpy_umathmodule_ARRAY_API
+#include <numpy/npy_common.h>
+#include <numpy/arrayobject.h>
+
+#define PyMicArray_API_UNIQUE_NAME _mpy_umathmodule_MICARRAY_API
 #define PyMicArray_NO_IMPORT
 #include <multiarray/arrayobject.h>
 #include <multiarray/multiarray_api.h>
-#include "out_creation.h"
+
+#include "output_creators.h"
 
 int PyMUFunc_GetCommonDevice(int nop, PyMicArrayObject **op) {
     int i, device;
@@ -20,7 +28,7 @@ int PyMUFunc_GetCommonDevice(int nop, PyMicArrayObject **op) {
 PyMicArrayObject *
 PyMUFunc_CreateArrayBroadcast(int nop, PyMicArrayObject **arrs, PyArray_Descr *dtype)
 {
-    PyMicArray *ret;
+    PyMicArrayObject *ret;
     npy_intp shape[NPY_MAXDIMS];
     npy_intp *arr_shape;
     int device, ndim, max_ndim, arr_ndim;
@@ -29,7 +37,7 @@ PyMUFunc_CreateArrayBroadcast(int nop, PyMicArrayObject **arrs, PyArray_Descr *d
 
     device = PyMUFunc_GetCommonDevice(nop, arrs);
 
-    /* Find largest ndim */
+    /* Find largest ndim array */
     max_ndim = 0;
     for (i = 1; i < nop; ++i) {
         if (PyMicArray_NDIM(arrs[i]) > PyMicArray_NDIM(arrs[max_ndim])) {
@@ -40,7 +48,7 @@ PyMUFunc_CreateArrayBroadcast(int nop, PyMicArrayObject **arrs, PyArray_Descr *d
     /* Copy largest ndim array to shape */
     ndim = PyMicArray_NDIM(arrs[max_ndim]);
     for (i = 0; i < ndim; ++i) {
-        shape[i] = PyMicArray_DIMS(arrs[max_ndim]);
+        shape[i] = PyMicArray_DIMS(arrs[max_ndim])[i];
     }
 
     /* Find broadcast shape */
@@ -66,6 +74,6 @@ PyMUFunc_CreateArrayBroadcast(int nop, PyMicArrayObject **arrs, PyArray_Descr *d
 
     ret = (PyMicArrayObject *) PyMicArray_Empty(device, ndim,
                                                 shape, dtype,
-                                                PyMicArray_ISFORTRAN(arr));
+                                                0);
     return ret;
 }

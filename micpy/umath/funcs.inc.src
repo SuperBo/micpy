@@ -1,0 +1,216 @@
+/* -*- c -*- */
+
+/*
+ * This file is for the definitions of the non-c99 functions used in ufuncs.
+ * All the complex ufuncs are defined here along with a smattering of real
+ * functions.
+ */
+
+
+/*
+ *****************************************************************************
+ **                           complex functions                             **
+ *****************************************************************************
+ */
+
+#pragma omp declare target
+
+/*
+ * don't pass structures between functions (only pointers) because how
+ * structures are passed is compiler dependent and could cause segfaults if
+ * umath_ufunc_object.inc is compiled with a different compiler than an
+ * extension that makes use of the ufunc api
+ */
+
+/**begin repeat
+ *
+ * #ctype = npy_cfloat, npy_cdouble, npy_clongdouble#
+ * #ftype = npy_float, npy_double, npy_longdouble#
+ * #c = f, ,l#
+ */
+
+static void
+nc_neg@c@(@ctype@ *a, @ctype@ *r)
+{
+    r->real = -a->real;
+    r->imag = -a->imag;
+    return;
+}
+
+static void
+nc_pos@c@(@ctype@ *a, @ctype@ *r)
+{
+    r->real = +a->real;
+    r->imag = +a->imag;
+    return;
+}
+
+static void
+nc_sqrt@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_csqrt@c@(*x);
+    return;
+}
+
+static void
+nc_rint@c@(@ctype@ *x, @ctype@ *r)
+{
+    r->real = rint@c@(x->real);
+    r->imag = rint@c@(x->imag);
+}
+
+static void
+nc_log@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_clog@c@(*x);
+    return;
+}
+
+static void
+nc_log1p@c@(@ctype@ *x, @ctype@ *r)
+{
+    @ftype@ l = hypot@c@(x->real + 1,x->imag);
+    r->imag = atan2@c@(x->imag, x->real + 1);
+    r->real = log@c@(l);
+    return;
+}
+
+static void
+nc_exp@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_cexp@c@(*x);
+    return;
+}
+
+static void
+nc_exp2@c@(@ctype@ *x, @ctype@ *r)
+{
+    @ctype@ a;
+    a.real = x->real*NPY_LOGE2@c@;
+    a.imag = x->imag*NPY_LOGE2@c@;
+    nc_exp@c@(&a, r);
+    return;
+}
+
+static void
+nc_expm1@c@(@ctype@ *x, @ctype@ *r)
+{
+    @ftype@ a = exp@c@(x->real);
+    r->real = a*cos@c@(x->imag) - 1.0@c@;
+    r->imag = a*sin@c@(x->imag);
+    return;
+}
+
+static void
+nc_pow@c@(@ctype@ *a, @ctype@ *b, @ctype@ *r)
+{
+   *r = mpy_cpow@c@(*a, *b);
+    return;
+}
+
+static void
+nc_acos@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_cacos@c@(*x);
+    return;
+}
+
+static void
+nc_acosh@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_cacosh@c@(*x);
+    return;
+}
+
+static void
+nc_asin@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_casin@c@(*x);
+    return;
+}
+
+
+static void
+nc_asinh@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_casinh@c@(*x);
+    return;
+}
+
+static void
+nc_atan@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_catan@c@(*x);
+    return;
+}
+
+static void
+nc_atanh@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_catanh@c@(*x);
+    return;
+}
+
+static void
+nc_cos@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_ccos@c@(*x);
+    return;
+}
+
+static void
+nc_cosh@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_ccosh@c@(*x);
+    return;
+}
+
+static void
+nc_log10@c@(@ctype@ *x, @ctype@ *r)
+{
+    nc_log@c@(x, r);
+    r->real *= NPY_LOG10E@c@;
+    r->imag *= NPY_LOG10E@c@;
+    return;
+}
+
+static void
+nc_log2@c@(@ctype@ *x, @ctype@ *r)
+{
+    nc_log@c@(x, r);
+    r->real *= NPY_LOG2E@c@;
+    r->imag *= NPY_LOG2E@c@;
+    return;
+}
+
+static void
+nc_sin@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_csin@c@(*x);
+    return;
+}
+
+static void
+nc_sinh@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_csinh@c@(*x);
+    return;
+}
+
+static void
+nc_tan@c@(@ctype@ *x, @ctype@ *r)
+{
+   *r = mpy_ctan@c@(*x);
+   return;
+}
+
+static void
+nc_tanh@c@(@ctype@ *x, @ctype@ *r)
+{
+    *r = mpy_ctanh@c@(*x);
+    return;
+}
+
+/**end repeat**/
+
+#pragma omp end declare target
