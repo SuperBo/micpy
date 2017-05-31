@@ -17,7 +17,6 @@ codegen_dir = join('micpy', 'code_generators')
 
 private_npy_defines = [('HAVE_ENDIAN_H', 1),
             ('HAVE_COMPLEX_H', 1),
-            ('NPY_USE_C99_COMPLEX', 1),
             ('HAVE_LDOUBLE_INTEL_EXTENDED_16_BYTES_LE', 1)]
 
 
@@ -70,7 +69,7 @@ def add_umath_ext(config):
     umath_dir = join('micpy', 'umath')
 
     umath_sources = ['umathmodule.c', 'mufunc_object.c',
-            'output_creators.c', 'reduction.c',
+            'output_creators.c',
             'funcs.inc.src', 'loops.h.src', 'loops.c.src',
             'simd.inc.src']
     umath_sources = [join(umath_dir, f) for f in umath_sources]

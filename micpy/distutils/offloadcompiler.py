@@ -17,7 +17,7 @@ class IntelOffloadCCompiler(UnixCCompiler):
                        '-fomit-frame-pointer -qopenmp '
                        '-Wall -Wimplicit '
                        '-qoffload-option,mic,compiler,'
-                       '\'"-fp-model fast=2"\'')
+                       '\'"-fp-model fast=2 -Wl,-zdefs"\'')
         compiler = self.cc_exe
         if platform.system() == 'Darwin':
             shared_flag = '-Wl,-undefined,dynamic_lookup'

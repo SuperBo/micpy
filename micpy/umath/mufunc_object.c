@@ -859,7 +859,6 @@ trivial_two_operand_loop(PyMicArrayObject **op,
         NPY_BEGIN_THREADS_THRESHOLDED(count[0]);
     }
 
-
 #pragma omp target device(device) \
     map(to: innerloop, innerloopdata, \
             count[0:2], stride[0:2])
@@ -3097,7 +3096,8 @@ mufunc_at(PyUFuncObject *ufunc, PyObject *args)
 }
 
 
-static struct PyMethodDef mufunc_methods[] = {
+//static: mic undefined symbol error if we set static here
+NPY_NO_EXPORT struct PyMethodDef mufunc_methods[] = {
     /*{"reduce",
         (PyCFunction)mufunc_reduce,
         METH_VARARGS | METH_KEYWORDS, NULL },
@@ -3296,7 +3296,8 @@ ufunc_get_signature(PyUFuncObject *ufunc)
  * Docstring is now set from python
  * static char *Ufunctype__doc__ = NULL;
  */
-static PyGetSetDef mufunc_getset[] = {
+//static: mic undefined symbol if we set static here
+NPY_NO_EXPORT PyGetSetDef mufunc_getset[] = {
     {"__doc__",
         (getter)ufunc_get_doc,
         NULL, NULL, NULL},
@@ -3339,11 +3340,11 @@ NPY_NO_EXPORT PyTypeObject PyMUFunc_Type = {
     PyObject_HEAD_INIT(NULL)
     0,                                          /* ob_size */
 #endif
-    "micpy.mufunc",                              /* tp_name */
+    "micpy.mufunc",                             /* tp_name */
     sizeof(PyUFuncObject),                      /* tp_basicsize */
     0,                                          /* tp_itemsize */
     /* methods */
-    (destructor)mufunc_dealloc,                  /* tp_dealloc */
+    (destructor)mufunc_dealloc,                 /* tp_dealloc */
     0,                                          /* tp_print */
     0,                                          /* tp_getattr */
     0,                                          /* tp_setattr */
