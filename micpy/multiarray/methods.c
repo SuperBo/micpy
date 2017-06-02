@@ -87,6 +87,7 @@ forward_ndarray_method(PyArrayObject *self, PyObject *args, PyObject *kwds,
 static PyObject *
 array_take(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 {
+    //TODO
     int dimension = NPY_MAXDIMS;
     PyObject *indices;
     PyMicArrayObject *out = NULL;
@@ -1467,14 +1468,14 @@ NPY_NO_EXPORT PyMethodDef array_methods[] = {
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"repeat",
         (PyCFunction)array_repeat,
-        METH_VARARGS | METH_KEYWORDS, NULL},
+        METH_VARARGS | METH_KEYWORDS, NULL},*/
     {"reshape",
         (PyCFunction)array_reshape,
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"resize",
         (PyCFunction)array_resize,
         METH_VARARGS | METH_KEYWORDS, NULL},
-    {"round",
+    /*{"round",
         (PyCFunction)array_round,
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"searchsorted",
@@ -1497,7 +1498,7 @@ NPY_NO_EXPORT PyMethodDef array_methods[] = {
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"sum",
         (PyCFunction)array_sum,
-        METH_VARARGS | METH_KEYWORDS, NULL},*/
+        METH_VARARGS | METH_KEYWORDS, NULL},
     {"swapaxes",
         (PyCFunction)array_swapaxes,
         METH_VARARGS, NULL},
@@ -1521,10 +1522,10 @@ NPY_NO_EXPORT PyMethodDef array_methods[] = {
         METH_VARARGS, NULL},
     {"var",
         (PyCFunction)array_variance,
-        METH_VARARGS | METH_KEYWORDS, NULL},
-    /*{"view",
-        (PyCFunction)array_view,
         METH_VARARGS | METH_KEYWORDS, NULL},*/
+    {"view",
+        (PyCFunction)array_view,
+        METH_VARARGS | METH_KEYWORDS, NULL},
     {"to_cpu",
         (PyCFunction)array_tohost,
         METH_NOARGS, NULL},

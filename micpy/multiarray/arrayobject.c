@@ -666,7 +666,7 @@ NPY_NO_EXPORT PyTypeObject PyMicArray_Type = {
     offsetof(PyMicArrayObject, weakreflist),    /* tp_weaklistoffset */
     0, /*(getiterfunc)array_iter,*/             /* tp_iter */
     0, /*(iternextfunc)0,*/                     /* tp_iternext */
-    0,/*TODO:array_methods,*/                   /* tp_methods */
+    array_methods,                              /* tp_methods */
     0,                                          /* tp_members */
     array_getsetlist,                           /* tp_getset */
     0,                                          /* tp_base */
