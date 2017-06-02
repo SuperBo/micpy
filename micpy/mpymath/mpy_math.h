@@ -38,139 +38,348 @@ static const union { npy_uint32 __i; float __f;} __bnzerof = {0x80000000UL};
 #define MPY_PZEROL ((npy_longdouble)MPY_PZEROF)
 #define MPY_NZEROL ((npy_longdouble)MPY_NZEROF)
 
+#pragma omp declare target
 /*
  * C99 double math funcs
  */
-#define mpy_sin sin
-#define mpy_cos cos
-#define mpy_tan tan
-#define mpy_sinh sinh
-#define mpy_cosh cosh
-#define mpy_tanh tanh
+inline double mpy_sin(double x){
+    return sin(x);
+}
+inline double mpy_cos(double x){
+    return cos(x);
+}
+inline double mpy_tan(double x){
+    return tan(x);
+}
+inline double mpy_sinh(double x){
+    return sinh(x);
+}
+inline double mpy_cosh(double x){
+    return cosh(x);
+}
+inline double mpy_tanh(double x){
+    return tanh(x);
+}
 
-#define mpy_asin asin
-#define mpy_acos acos
-#define mpy_atan atan
+inline double mpy_asin(double x){
+    return asin(x);
+}
+inline double mpy_acos(double x){
+    return acos(x);
+}
+inline double mpy_atan(double x){
+    return atan(x);
+}
 
-#define mpy_log log
-#define mpy_log10 log10
-#define mpy_exp exp
-#define mpy_sqrt sqrt
-#define mpy_cbrt cbrt
+inline double mpy_log(double x){
+    return log(x);
+}
+inline double mpy_log10(double x){
+    return log10(x);
+}
+inline double mpy_exp(double x){
+    return exp(x);
+}
+inline double mpy_sqrt(double x){
+    return sqrt(x);
+}
+inline double mpy_cbrt(double x){
+    return cbrt(x);
+}
 
-#define mpy_fabs fabs
-#define mpy_ceil ceil
-#define mpy_fmod fmod
-#define mpy_floor floor
+inline double mpy_fabs(double x){
+    return fabs(x);
+}
+inline double mpy_ceil(double x){
+    return ceil(x);
+}
+inline double mpy_fmod(double x, double y){
+    return fmod(x, y);
+}
+inline double mpy_floor(double x){
+    return floor(x);
+}
 
-#define mpy_expm1 expm1
-#define mpy_log1p log1p
-#define mpy_hypot hypot
-#define mpy_acosh acosh
-#define mpy_asinh asinh
-#define mpy_atanh atanh
-#define mpy_rint rint
-#define mpy_trunc trunc
-#define mpy_exp2 exp2
-#define mpy_log2 log2
+inline double mpy_expm1(double x){
+    return expm1(x);
+}
+inline double mpy_log1p(double x){
+    return log1p(x);
+}
+inline double mpy_hypot(double x, double y){
+    return hypot(x, y);
+}
+inline double mpy_acosh(double x){
+    return acosh(x);
+}
+inline double mpy_asinh(double x){
+    return asinh(x);
+}
+inline double mpy_atanh(double x){
+    return atanh(x);
+}
+inline double mpy_rint(double x){
+    return rint(x);
+}
+inline double mpy_trunc(double x){
+    return trunc(x);
+}
+inline double mpy_exp2(double x){
+    return exp2(x);
+}
+inline double mpy_log2(double x){
+    return log2(x);
+}
 
-#define mpy_atan2 atan2
-#define mpy_pow pow
-#define mpy_modf modf
-#define mpy_frexp frexp
-#define mpy_ldexp ldexp
+inline double mpy_atan2(double x, double y){
+    return atan2(x, y);
+}
+inline double mpy_pow(double x, double y){
+    return pow(x, y);
+}
+inline double mpy_modf(double x, double* y){
+    return modf(x, y);
+}
+inline double mpy_frexp(double x, int* y){
+    return frexp(x, y);
+}
+inline double mpy_ldexp(double n, int y){
+    return ldexp(n, y);
+}
 
-#define mpy_copysign copysign
-#define mpy_nextafter nextafter
+inline double mpy_copysign(double x, double y){
+    return copysign(x, y);
+}
+inline double mpy_nextafter(double x, double y){
+    return nextafter(x, y);
+}
 
 /*
  * float C99 math functions
  */
-#define mpy_sinf sinf
-#define mpy_cosf cosf
-#define mpy_tanf tanf
-#define mpy_sinhf sinhf
-#define mpy_coshf coshf
-#define mpy_tanhf tanhf
-#define mpy_fabsf fabsf
-#define mpy_floorf floorf
-#define mpy_ceilf ceilf
-#define mpy_rintf rintf
-#define mpy_truncf truncf
-#define mpy_sqrtf sqrtf
-#define mpy_cbrtf cbrtf
-#define mpy_log10f log10f
-#define mpy_logf logf
-#define mpy_expf expf
-#define mpy_expm1f expm1f
-#define mpy_asinf asinf
-#define mpy_acosf acosf
-#define mpy_atanf atanf
-#define mpy_asinhf asinhf
-#define mpy_acoshf acoshf
-#define mpy_atanhf atanhf
-#define mpy_log1pf log1pf
-#define mpy_exp2f exp2f
-#define mpy_log2f log2f
+inline float mpy_sinf(float x){
+    return sinf(x);
+}
+inline float mpy_cosf(float x){
+    return cosf(x);
+}
+inline float mpy_tanf(float x){
+    return tanf(x);
+}
+inline float mpy_sinhf(float x){
+    return sinhf(x);
+}
+inline float mpy_coshf(float x){
+    return coshf(x);
+}
+inline float mpy_tanhf(float x){
+    return tanhf(x);
+}
+inline float mpy_fabsf(float x){
+    return fabsf(x);
+}
+inline float mpy_floorf(float x){
+    return floorf(x);
+}
+inline float mpy_ceilf(float x){
+    return ceilf(x);
+}
+inline float mpy_rintf(float x){
+    return rintf(x);
+}
+inline float mpy_truncf(float x){
+    return truncf(x);
+}
+inline float mpy_sqrtf(float x){
+    return sqrtf(x);
+}
+inline float mpy_cbrtf(float x){
+    return cbrtf(x);
+}
+inline float mpy_log10f(float x){
+    return log10f(x);
+}
+inline float mpy_logf(float x){
+    return logf(x);
+}
+inline float mpy_expf(float x){
+    return expf(x);
+}
+inline float mpy_expm1f(float x){
+    return expm1f(x);
+}
+inline float mpy_asinf(float x){
+    return asinf(x);
+}
+inline float mpy_acosf(float x){
+    return acosf(x);
+}
+inline float mpy_atanf(float x){
+    return atanf(x);
+}
+inline float mpy_asinhf(float x){
+    return asinhf(x);
+}
+inline float mpy_acoshf(float x){
+    return acoshf(x);
+}
+inline float mpy_atanhf(float x){
+    return atanhf(x);
+}
+inline float mpy_log1pf(float x){
+    return log1pf(x);
+}
+inline float mpy_exp2f(float x){
+    return exp2f(x);
+}
+inline float mpy_log2f(float x){
+    return log2f(x);
+}
 
-#define mpy_atan2f atan2f
-#define mpy_hypotf hypotf
-#define mpy_powf powf
-#define mpy_fmodf fmodf
+inline float mpy_atan2f(float x, float y){
+    return atan2f(x, y);
+}
+inline float mpy_hypotf(float x, float y){
+    return hypotf(x, y);
+}
+inline float mpy_powf(float x, float y){
+    return powf(x, y);
+}
+inline float mpy_fmodf(float x, float y){
+    return fmodf(x, y);
+}
 
-#define mpy_modff modff
-#define mpy_frexpf frexpf
-#define mpy_ldexpf ldexpf
+inline float mpy_modff(float x, float* y){
+    return modff(x, y);
+}
+inline float mpy_frexpf(float x, int* y){
+    return frexpf(x, y);
+}
+inline float mpy_ldexpf(float x, int y){
+    return ldexpf(x, y);
+}
 
-#define mpy_copysignf copysignf
-#define mpy_nextafterf nextafterf
+inline float mpy_copysignf(float x, float y){
+    return copysignf(x, y);
+}
+inline float mpy_nextafterf(float x, float y){
+    return nextafterf(x, y);
+}
 
 /*
  * long double C99 math functions
  */
-#define mpy_sinl sinl
-#define mpy_cosl cosl
-#define mpy_tanl tanl
-#define mpy_sinhl sinhl
-#define mpy_coshl coshl
-#define mpy_tanhl tanhl
-#define mpy_fabsl fabsl
-#define mpy_floorl floorl
-#define mpy_ceill ceill
-#define mpy_rintl rintl
-#define mpy_truncl truncl
-#define mpy_sqrtl sqrtl
-#define mpy_cbrtl cbrtl
-#define mpy_log10l log10l
-#define mpy_logl logl
-#define mpy_expl expl
-#define mpy_expm1l expm1l
-#define mpy_asinl asinl
-#define mpy_acosl acosl
-#define mpy_atanl atanl
-#define mpy_asinhl asinhl
-#define mpy_acoshl acoshl
-#define mpy_atanhl atanhl
-#define mpy_log1pl log1pl
-#define mpy_exp2l exp2l
-#define mpy_log2l log2l
-
-#define mpy_atan2l atan2l
-#define mpy_hypotl hypotl
-#define mpy_powl powl
-#define mpy_fmodl fmodl
-
-#define mpy_modfl modfl
-#define mpy_frexpl frexpl
-#define mpy_ldexpl ldexpl
-
-#define mpy_copysignl copysignl
-#define mpy_nextafterl nextafterl
-
-#pragma omp declare target
 /*
  * Complex declarations
  */
+inline npy_longdouble mpy_sinl(npy_longdouble x){
+    return sinl(x);
+}
+inline npy_longdouble mpy_cosl(npy_longdouble x){
+    return cosl(x);
+}
+inline npy_longdouble mpy_tanl(npy_longdouble x){
+    return tanl(x);
+}
+inline npy_longdouble mpy_sinhl(npy_longdouble x){
+    return sinhl(x);
+}
+inline npy_longdouble mpy_coshl(npy_longdouble x){
+    return coshl(x);
+}
+inline npy_longdouble mpy_tanhl(npy_longdouble x){
+    return tanhl(x);
+}
+inline npy_longdouble mpy_fabsl(npy_longdouble x){
+    return fabsl(x);
+}
+inline npy_longdouble mpy_floorl(npy_longdouble x){
+    return floorl(x);
+}
+inline npy_longdouble mpy_ceill(npy_longdouble x){
+    return ceill(x);
+}
+inline npy_longdouble mpy_rintl(npy_longdouble x){
+    return rintl(x);
+}
+inline npy_longdouble mpy_truncl(npy_longdouble x){
+    return truncl(x);
+}
+inline npy_longdouble mpy_sqrtl(npy_longdouble x){
+    return sqrtl(x);
+}
+inline npy_longdouble mpy_cbrtl(npy_longdouble x){
+    return cbrtl(x);
+}
+inline npy_longdouble mpy_log10l(npy_longdouble x){
+    return log10l(x);
+}
+inline npy_longdouble mpy_logl(npy_longdouble x){
+    return logl(x);
+}
+inline npy_longdouble mpy_expl(npy_longdouble x){
+    return expl(x);
+}
+inline npy_longdouble mpy_expm1l(npy_longdouble x){
+    return expm1l(x);
+}
+inline npy_longdouble mpy_asinl(npy_longdouble x){
+    return asinl(x);
+}
+inline npy_longdouble mpy_acosl(npy_longdouble x){
+    return acosl(x);
+}
+inline npy_longdouble mpy_atanl(npy_longdouble x){
+    return atanl(x);
+}
+inline npy_longdouble mpy_asinhl(npy_longdouble x){
+    return asinhl(x);
+}
+inline npy_longdouble mpy_acoshl(npy_longdouble x){
+    return acoshl(x);
+}
+inline npy_longdouble mpy_atanhl(npy_longdouble x){
+    return atanhl(x);
+}
+inline npy_longdouble mpy_log1pl(npy_longdouble x){
+    return log1pl(x);
+}
+inline npy_longdouble mpy_exp2l(npy_longdouble x){
+    return exp2l(x);
+}
+inline npy_longdouble mpy_log2l(npy_longdouble x){
+    return log2l(x);
+}
+
+inline npy_longdouble mpy_atan2l(npy_longdouble x, npy_longdouble y){
+    return atan2l(x, y);
+}
+inline npy_longdouble mpy_hypotl(npy_longdouble x, npy_longdouble y){
+    return hypotl(x, y);
+}
+inline npy_longdouble mpy_powl(npy_longdouble x, npy_longdouble y){
+    return powl(x, y);
+}
+inline npy_longdouble mpy_fmodl(npy_longdouble x, npy_longdouble y){
+    return fmodl(x, y);
+}
+
+inline npy_longdouble mpy_modfl(npy_longdouble x, npy_longdouble* y){
+    return modfl(x, y);
+}
+inline npy_longdouble mpy_frexpl(npy_longdouble x, int* y){
+    return frexpl(x, y);
+}
+inline npy_longdouble mpy_ldexpl(npy_longdouble x, int y){
+    return ldexpl(x, y);
+}
+
+inline npy_longdouble mpy_copysignl(npy_longdouble x, npy_longdouble y){
+    return copysignl(x, y);
+}
+inline npy_longdouble mpy_nextafterl(npy_longdouble x, npy_longdouble y){
+    return nextafterl(x, y);
+}
 
 /*
  * C99 specifies that complex numbers have the same representation as
