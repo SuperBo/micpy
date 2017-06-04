@@ -161,4 +161,63 @@ static int _import_pymicarray() {
 #define PyMicArray_GetCurrentDevice \
     (*(int (*)(void)) \
      PyMicArray_API[29])
+#define MpyIter_AdvancedNew \
+    (*(MpyIter * (*)(int , PyMicArrayObject **, npy_uint32,\
+                 NPY_ORDER, NPY_CASTING, npy_uint32 *,\
+                 PyArray_Descr **, int , int **, npy_intp *, npy_intp)) \
+     PyMicArray_API[30])
+#define MpyIter_MultiNew \
+    (*(MpyIter * (*)(int, PyMicArrayObject **, npy_uint32,\
+                 NPY_ORDER, NPY_CASTING,\
+                 npy_uint32 *, PyArray_Descr **)) \
+     PyMicArray_API[31])
+#define MpyIter_New \
+    (*(MpyIter * (*)(PyMicArrayObject *, npy_uint32,\
+                  NPY_ORDER, NPY_CASTING, PyArray_Descr*)) \
+     PyMicArray_API[32])
+#define MpyIter_Deallocate \
+    (*(int (*)(MpyIter *)) \
+     PyMicArray_API[33])
+#define MpyIter_Reset \
+    (*(int (*)(MpyIter *, char**)) \
+     PyMicArray_API[34])
+#define MpyIter_ResetBasePointers \
+    (*(int (*)(MpyIter *, char **, char **)) \
+     PyMicArray_API[35])
+#define MpyIter_GetIterIndex \
+    (*(npy_intp (*)(MpyIter *)) \
+     PyMicArray_API[36])
+#define MpyIter_GetIterIndexRange \
+    (*(void (*)(MpyIter *, npy_intp *, npy_intp *)) \
+     PyMicArray_API[37])
+#define MpyIter_GetIterSize \
+    (*(npy_intp (*)(MpyIter *)) \
+     PyMicArray_API[38])
+#define MpyIter_GetNDim \
+    (*(int (*)(MpyIter *)) \
+     PyMicArray_API[39])
+#define MpyIter_GetNOp \
+    (*(int (*)(MpyIter *)) \
+     PyMicArray_API[40])
+#define MpyIter_GetShape \
+    (*(int (*)(MpyIter *, npy_intp *)) \
+     PyMicArray_API[41])
+#define MpyIter_GetDescrArray \
+    (*(PyArray_Descr ** (*)(MpyIter *)) \
+     PyMicArray_API[42])
+#define MpyIter_GetOperandArray \
+    (*(PyMicArrayObject ** (*)(MpyIter *)) \
+     PyMicArray_API[43])
+#define MpyIter_GetDataPtrArray \
+    (*(npy_intp * (*)(MpyIter *)) \
+     PyMicArray_API[44])
+#define MpyIter_GetInnerLoopSizePtr \
+    (*(npy_intp * (*)(MpyIter *)) \
+     PyMicArray_API[45])
+#define MpyIter_GetInnerStrideArray \
+    (*(npy_intp * (*)(MpyIter *)) \
+     PyMicArray_API[46])
+#define MpyIter_GetIterNext \
+    (*(MpyIter_IterNextFunc * (*)(MpyIter *, char **)) \
+     PyMicArray_API[47])
 #endif

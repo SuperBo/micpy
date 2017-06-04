@@ -44,6 +44,7 @@
 #include "multiarray_api_creator.h"
 #include "shape.h"
 #include "scalar.h"
+#include "nditer.h"
 
 static int num_devices;
 static int current_device;

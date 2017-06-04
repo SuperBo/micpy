@@ -40,6 +40,24 @@
         (void *) &PyMicArray_FailUnlessWriteable,\
         (void *) &PyMicArray_GetNumDevices,\
         (void *) &PyMicArray_GetCurrentDevice,\
+        (void *) &MpyIter_AdvancedNew,\
+        (void *) &MpyIter_MultiNew,\
+        (void *) &MpyIter_New,\
+        (void *) &MpyIter_Deallocate,\
+        (void *) &MpyIter_Reset,\
+        (void *) &MpyIter_ResetBasePointers,\
+        (void *) &MpyIter_GetIterIndex,\
+        (void *) &MpyIter_GetIterIndexRange,\
+        (void *) &MpyIter_GetIterSize,\
+        (void *) &MpyIter_GetNDim,\
+        (void *) &MpyIter_GetNOp,\
+        (void *) &MpyIter_GetShape,\
+        (void *) &MpyIter_GetDescrArray,\
+        (void *) &MpyIter_GetOperandArray,\
+        (void *) &MpyIter_GetDataPtrArray,\
+        (void *) &MpyIter_GetInnerLoopSizePtr,\
+        (void *) &MpyIter_GetInnerStrideArray,\
+        (void *) &MpyIter_GetIterNext,\
         NULL\
     }
 

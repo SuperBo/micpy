@@ -42,10 +42,18 @@ typedef struct _OffloadArrayObject {
     int device;
 } PyMicArrayObject;
 
+/* Array iter part */
+typedef struct MpyIter_InternalOnly MpyIter;
+typedef int (MpyIter_IterNextFunc)(MpyIter *iter);
+typedef void (MpyIter_GetMultiIndexFunc)(MpyIter *iter,
+                                      npy_intp *outcoords);
+/* End array iter */
+
 #define MPY_SIZEOF_PYMICARRAYOBJECT (sizeof(PyMicArrayObject))
 
 #ifdef _MICARRAYMODULE
-/*API*/
+
+/* Internal API Part */
 NPY_NO_EXPORT int
 PyMicArray_SetBaseObject(PyMicArrayObject *arr, PyObject *obj);
 
@@ -64,6 +72,8 @@ PyMicArray_FailUnlessWriteable(PyMicArrayObject *obj, const char *name);
 static const int NPY_ARRAY_WARN_ON_WRITE = (1 << 31);
 
 extern PyTypeObject PyMicArray_Type;
+
+/* End internal API */
 #endif
 
 /*

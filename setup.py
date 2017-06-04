@@ -25,7 +25,8 @@ def add_multiarray_ext(config):
             'common.c', 'calculation.c', 'convert.c',
             'conversion_utils.c', 'creators.c', 'getset.c',
             'methods.c', 'shape.c', 'scalar.c', 'item_selection.c',
-            'convert_datatype.c',
+            'convert_datatype.c', 'dtype_transfer.c',
+            'nditer_templ.c.src', 'nditer_constr.c', 'nditer_api.c',
             'multiarraymodule.c']
     multiarray_sources = [join(multiarray_dir, f) for f in multiarray_sources]
 
@@ -38,7 +39,8 @@ def add_multiarray_ext(config):
     config.add_extension('multiarray',
                         sources=multiarray_sources,
                         define_macros=private_npy_defines +
-                                [('NMAXDEVICES', '2')])
+                                [('NMAXDEVICES', '2')],
+                        include_dirs=[multiarray_dir])
 
 
 def add_mpymath_lib(config):
