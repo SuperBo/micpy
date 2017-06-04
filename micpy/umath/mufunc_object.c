@@ -50,7 +50,7 @@
 #include "output_creators.h"
 #include "reduction.h"
 
-/* Some useful macroes */
+/* Some useful macros */
 #define MPY_TARGET_MIC __declspec(target(mic))
 
 #define PyMicArray_TRIVIAL_PAIR_ITERATION_STRIDE(size, arr) ( \
@@ -882,7 +882,7 @@ trivial_two_operand_loop(PyMicArrayObject **op,
     npy_intp count[2], stride[2];
     int needs_api, device;
     MPY_TARGET_MIC PyUFuncGenericFunction offloop = innerloop;
-    MPY_TARGET_MIC void (*offloopdata)(void) = innerloopdata;
+
     NPY_BEGIN_THREADS_DEF;
 
     needs_api = PyDataType_REFCHK(PyMicArray_DESCR(op[0])) ||
@@ -902,8 +902,8 @@ trivial_two_operand_loop(PyMicArrayObject **op,
     }
 
 #pragma omp target device(device) map(to:offloop, data,\
-                                        count, stride, offloopdata)
-    offloop((char **)data, count, stride, offloopdata);
+                                        count, stride, innerloopdata)
+    offloop((char **)data, count, stride, innerloopdata);
 
     NPY_END_THREADS;
 }
@@ -917,7 +917,7 @@ trivial_three_operand_loop(PyMicArrayObject **op,
     npy_intp count[3], stride[3];
     int needs_api, device;
     MPY_TARGET_MIC PyUFuncGenericFunction offloop = innerloop;
-    MPY_TARGET_MIC void (*offloopdata)(void) = innerloopdata;
+
     NPY_BEGIN_THREADS_DEF;
 
     needs_api = PyDataType_REFCHK(PyMicArray_DESCR(op[0])) ||
@@ -938,8 +938,8 @@ trivial_three_operand_loop(PyMicArrayObject **op,
     }
 
 #pragma omp target device(device) map(to:offloop, data,\
-                                        count, stride, offloopdata)
-    offloop((char **)data, count, stride, offloopdata);
+                                        count, stride, innerloopdata)
+    offloop((char **)data, count, stride, innerloopdata);
 
     NPY_END_THREADS;
 }
@@ -1134,7 +1134,9 @@ execute_legacy_ufunc_loop(PyUFuncObject *ufunc,
         return -1;
     }
     /* If the loop wants the arrays, provide them. */
-    innerloopdata = (void*)op;
+    if (_does_loop_use_arrays(innerloopdata)) {
+        innerloopdata = (void*)op;
+    }
 
     /* First check for the trivial cases that don't need an iterator */
     if (trivial_loop_ok) {
