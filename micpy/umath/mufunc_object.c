@@ -44,6 +44,7 @@
 #define PyMicArray_NO_IMPORT
 #include <multiarray/arrayobject.h>
 #include <multiarray/multiarray_api.h>
+#include <multiarray/mpy_common.h>
 
 #define _MICARRAY_UMATHMODULE
 #include "mufunc_object.h"
@@ -51,8 +52,6 @@
 #include "reduction.h"
 
 /* Some useful macros */
-#define MPY_TARGET_MIC __declspec(target(mic))
-
 #define PyMicArray_TRIVIAL_PAIR_ITERATION_STRIDE(size, arr) ( \
                         size == 1 ? 0 : ((PyMicArray_NDIM(arr) == 1) ? \
                                           PyMicArray_STRIDE(arr, 0) : \
@@ -959,29 +958,27 @@ iterator_loop(PyUFuncObject *ufunc,
     npy_intp i, nin = ufunc->nin, nout = ufunc->nout;
     npy_intp nop = nin + nout;
     npy_uint32 op_flags[NPY_MAXARGS];
-    NpyIter *iter;
+    MpyIter *iter;
     char *baseptrs[NPY_MAXARGS];
 
-    NpyIter_IterNextFunc *iternext;
-    char **dataptr;
+    MPY_TARGET_MIC MpyIter_IterNextFunc *iternext;
+    MPY_TARGET_MIC PyUFuncGenericFunction offloop = innerloop;
+    npy_intp *dataptr;
     npy_intp *stride;
-    npy_intp *size;
+    npy_intp *count_ptr;
     int device;
 
-    //PyArrayObject **op_it;
-    PyArrayObject *op_npy[nop];
-    PyMicArrayObject *op_new[nout];
+    PyMicArrayObject **op_it;
     int new_count = 0;
     npy_uint32 iter_flags;
-
-    device = PyMUFunc_GetCommonDevice(nop, op);
 
     NPY_BEGIN_THREADS_DEF;
 
     /* Set up the flags */
     for (i = 0; i < nin; ++i) {
         op_flags[i] = NPY_ITER_READONLY |
-                      NPY_ITER_ALIGNED;
+                      NPY_ITER_ALIGNED |
+                      NPY_ITER_OVERLAP_ASSUME_ELEMENTWISE;
         /*
          * If READWRITE flag has been set for this operand,
          * then clear default READONLY flag
@@ -994,113 +991,101 @@ iterator_loop(PyUFuncObject *ufunc,
     for (i = nin; i < nop; ++i) {
         op_flags[i] = NPY_ITER_WRITEONLY |
                       NPY_ITER_ALIGNED |
+                      NPY_ITER_ALLOCATE |
                       NPY_ITER_NO_BROADCAST |
-                      NPY_ITER_NO_SUBTYPE;
+                      NPY_ITER_NO_SUBTYPE |
+                      NPY_ITER_OVERLAP_ASSUME_ELEMENTWISE;
     }
 
     iter_flags = ufunc->iter_flags |
                  NPY_ITER_EXTERNAL_LOOP |
                  NPY_ITER_REFS_OK |
                  NPY_ITER_ZEROSIZE_OK;
-
-    /* Allocate output result */
-    for (i = nin; i < nop; ++i) {
-        PyMicArrayObject *tmp;
-        if (op[i] == NULL) {
-            tmp = (PyMicArrayObject *)
-                PyMUFunc_CreateArrayBroadcast(nin, op, dtype[i]);
-
-            if (tmp == NULL)
-                goto fail;
-            op[i] = tmp;
-            op_new[new_count++] = tmp;
-        }
-    }
-
-    /* Copy to temporary PyArrayObject * array */
-    for (i = 0; i < nop; ++i) {
-        op_npy[i] = (PyArrayObject *) op[i];
-    }
-
+    /* TODO: enable when buffer nditer is implemented */
+                 /* NPY_ITER_GROWINNER | */
+                 /* NPY_ITER_DELAY_BUFALLOC | */
+                 /* NPY_ITER_COPY_IF_OVERLAP; */
 
     /*
      * Allocate the iterator.  Because the types of the inputs
      * were already checked, we use the casting rule 'unsafe' which
      * is faster to calculate.
      */
-    iter = NpyIter_MultiNew(nop, op_npy, iter_flags, order,
+    /* TODO: switch to AdvancedNew when nditer buffer is implemented */
+    iter = MpyIter_MultiNew(nop, op, iter_flags, order,
                             NPY_UNSAFE_CASTING, op_flags, dtype);
     if (iter == NULL) {
-        goto fail;
+        return -1;
     }
 
     /* Copy any allocated outputs */
-    /*
-    op_it = NpyIter_GetOperandArray(iter);
-    for (i = nin; i < nop; ++i) {
-        if (op[i] == NULL) {
-            op[i] = op_it[i];
-            Py_INCREF(op[i]);
-        }
-    }
-    */
+    op_it = MpyIter_GetOperandArray(iter);
+    for (i = 0; i < nout; ++i) {
+        if (op[nin+i] == NULL) {
+            op[nin+i] = op_it[nin+i];
+            Py_INCREF(op[nin+i]);
 
-    /* Call the __array_prepare__ functions where necessary */
-    /*for (i = 0; i < nout; ++i) {
-        if (prepare_ufunc_output(ufunc, &op[nin+i],
-                            arr_prep[i], arr_prep_args, i) < 0) {
-            NpyIter_Deallocate(iter);
-            return -1;
+            /* Call the __array_prepare__ functions for the new array */
+            /*if (prepare_ufunc_output(ufunc, &op[nin+i],
+                        arr_prep[i], arr_prep_args, i) < 0) {
+                NpyIter_Deallocate(iter);
+                return -1;
+            }*/
+
+            /*
+             * In case __array_prepare__ returned a different array, put the
+             * results directly there, ignoring the array allocated by the
+             * iterator.
+             *
+             * Here, we assume the user-provided __array_prepare__ behaves
+             * sensibly and doesn't return an array overlapping in memory
+             * with other operands --- the op[nin+i] array passed to it is newly
+             * allocated and doesn't have any overlap.
+             */
+            baseptrs[nin+i] = PyMicArray_BYTES(op[nin+i]);
+        }
+        else {
+            baseptrs[nin+i] = PyMicArray_BYTES(op_it[nin+i]);
         }
     }
-    */
 
     /* Only do the loop if the iteration size is non-zero */
-    if (NpyIter_GetIterSize(iter) != 0) {
-
-        /* Reset the iterator with the base pointers from the wrapped outputs */
-        for (i = 0; i < nop; ++i) {
-            baseptrs[i] = PyMicArray_BYTES(op[i]);
+    if (MpyIter_GetIterSize(iter) != 0) {
+        /* Reset the iterator with the base pointers from possible __array_prepare__ */
+        for (i = 0; i < nin; ++i) {
+            baseptrs[i] = PyMicArray_BYTES(op_it[i]);
         }
-        if (NpyIter_ResetBasePointers(iter, baseptrs, NULL) != NPY_SUCCEED) {
-            NpyIter_Deallocate(iter);
-            goto fail;
+        if (MpyIter_ResetBasePointers(iter, baseptrs, NULL) != NPY_SUCCEED) {
+            MpyIter_Deallocate(iter);
+            return -1;
         }
 
         /* Get the variables needed for the loop */
-        iternext = NpyIter_GetIterNext(iter, NULL);
+        iternext = MpyIter_GetIterNext(iter, NULL);
         if (iternext == NULL) {
-            NpyIter_Deallocate(iter);
-            goto fail;
+            MpyIter_Deallocate(iter);
+            return -1;
         }
-        dataptr = NpyIter_GetDataPtrArray(iter);
-        stride = NpyIter_GetInnerStrideArray(iter);
-        size = NpyIter_GetInnerLoopSizePtr(iter);
+        dataptr = MpyIter_GetDataPtrArray(iter);
+        stride = MpyIter_GetInnerStrideArray(iter);
+        count_ptr = MpyIter_GetInnerLoopSizePtr(iter);
+        device = MpyIter_GetDevice(iter);
 
-        NPY_BEGIN_THREADS_NDITER(iter);
+        MPY_BEGIN_THREADS_NDITER(iter);
 
         /* Execute the loop */
+#pragma omp target device(device) map(to:offloop, iternext, \
+                dataptr, count_ptr, stride, innerloopdata)
         do {
-            NPY_UF_DBG_PRINT1("iterator loop count %d\n", (int)*count_ptr);
-#pragma omp target device(device) \
-            map(to: innerloop, innerloopdata, \
-                    size[0:1], \
-                    stride[0:nop])
-            innerloop(NULL, size, stride, innerloopdata);
+            //NPY_UF_DBG_PRINT1("iterator loop count %d\n", (int)*count_ptr);
+            offloop((char **)dataptr, count_ptr, stride, innerloopdata);
         } while (iternext(iter));
 
         NPY_END_THREADS;
     }
 
-    NpyIter_Deallocate(iter);
+    MpyIter_Deallocate(iter);
     return 0;
-
-fail:
-    /* Clean up allocated array */
-    for (i = 0; i < new_count; ++i) {
-        Py_DECREF(op_new[i]);
-    }
-    return -1;
 }
 
 /*

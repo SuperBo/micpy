@@ -26,6 +26,9 @@ MpyIter_New(PyMicArrayObject *op, npy_uint32 flags,
 NPY_NO_EXPORT int
 MpyIter_Deallocate(MpyIter *iter);
 
+NPY_NO_EXPORT npy_bool
+MpyIter_IterationNeedsAPI(MpyIter *iter);
+
 NPY_NO_EXPORT int
 MpyIter_RemoveAxis(MpyIter *iter, int axis);
 
@@ -135,6 +138,9 @@ MpyIter_GetInnerFixedStrideArray(MpyIter *iter, npy_intp *out_strides);
 
 NPY_NO_EXPORT npy_intp *
 MpyIter_GetInnerLoopSizePtr(MpyIter *iter);
+
+NPY_NO_EXPORT int
+MpyIter_GetDevice(MpyIter *iter);
 
 NPY_NO_EXPORT void
 MpyIter_DebugPrint(MpyIter *iter);

@@ -881,6 +881,15 @@ MpyIter_GetIterSize(MpyIter *iter)
 }
 
 /*NUMPY_API
+ * Gets the device on which elements reside
+ */
+NPY_NO_EXPORT int
+MpyIter_GetDevice(MpyIter *iter)
+{
+    return NIT_DEVICE(iter);
+}
+
+/*NUMPY_API
  * Whether the iterator is buffered
  */
 NPY_NO_EXPORT npy_bool

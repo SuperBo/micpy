@@ -220,4 +220,10 @@ static int _import_pymicarray() {
 #define MpyIter_GetIterNext \
     (*(MpyIter_IterNextFunc * (*)(MpyIter *, char **)) \
      PyMicArray_API[47])
+#define MpyIter_GetDevice \
+    (*(int (*)(MpyIter *)) \
+     PyMicArray_API[48])
+#define MpyIter_IterationNeedsAPI \
+    ((npy_bool (*)(MpyIter *)) \
+     PyMicArray_API[49])
 #endif

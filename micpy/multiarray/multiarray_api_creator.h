@@ -58,6 +58,8 @@
         (void *) &MpyIter_GetInnerLoopSizePtr,\
         (void *) &MpyIter_GetInnerStrideArray,\
         (void *) &MpyIter_GetIterNext,\
+        (void *) &MpyIter_GetDevice,\
+        (void *) &MpyIter_IterationNeedsAPI,\
         NULL\
     }
 
