@@ -44,6 +44,9 @@ convert_shape_to_string(npy_intp n, npy_intp *vals, char *ending);
 NPY_NO_EXPORT const char *
 npy_casting_to_string(NPY_CASTING casting);
 
+NPY_NO_EXPORT void
+dot_alignment_error(PyMicArrayObject *a, int i, PyMicArrayObject *b, int j);
+
 /*
  * return true if pointer is aligned to 'alignment'
  * borrow from numpy
@@ -99,5 +102,34 @@ check_and_adjust_index(npy_intp *index, npy_intp max_item, int axis,
     }
     return 0;
 }
+
+/*
+ * Convert NumPy stride to BLAS stride. Returns 0 if conversion cannot be done
+ * (BLAS won't handle negative or zero strides the way we want).
+ */
+static NPY_INLINE int
+blas_stride(npy_intp stride, unsigned itemsize)
+{
+    /*
+     * Should probably check pointer alignment also, but this may cause
+     * problems if we require complex to be 16 byte aligned.
+     */
+    if (stride > 0 && mpy_is_aligned((void *)stride, itemsize)) {
+        stride /= itemsize;
+        if (stride <= INT_MAX) {
+            return stride;
+        }
+    }
+    return 0;
+}
+
+/*
+ * Define a chunksize for CBLAS. CBLAS counts in integers.
+ */
+#if NPY_MAX_INTP > INT_MAX
+# define MPY_CBLAS_CHUNK  (INT_MAX / 2 + 1)
+#else
+# define MPY_CBLAS_CHUNK  NPY_MAX_INTP
+#endif
 
 #endif

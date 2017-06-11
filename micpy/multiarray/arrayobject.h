@@ -133,6 +133,19 @@ extern PyTypeObject PyMicArray_Type;
             PyArray_UpdateFlags((PyArrayObject *)o, FLAGS)
 #define PyMicArray_XDECREF_ERR(o) PyArray_XDECREF_ERR((PyArrayObject *)o)
 
+#define PyMicArray_ISNOTSWAPPED(m) PyArray_ISNBO(PyMicArray_DESCR(m)->byteorder)
+#define PyMicArray_ISBYTESWAPPED(m) (!PyMicArray_ISNOTSWAPPED(m))
+
+#define PyMicArray_FLAGSWAP(m, flags) (PyMicArray_CHKFLAGS(m, flags) &&       \
+                                    PyMicArray_ISNOTSWAPPED(m))
+
+#define PyMicArray_ISCARRAY(m) PyMicArray_FLAGSWAP(m, NPY_ARRAY_CARRAY)
+#define PyMicArray_ISCARRAY_RO(m) PyMicArray_FLAGSWAP(m, NPY_ARRAY_CARRAY_RO)
+#define PyMicArray_ISFARRAY(m) PyMicArray_FLAGSWAP(m, NPY_ARRAY_FARRAY)
+#define PyMicArray_ISFARRAY_RO(m) PyMicArray_FLAGSWAP(m, NPY_ARRAY_FARRAY_RO)
+#define PyMicArray_ISBEHAVED(m) PyMicArray_FLAGSWAP(m, NPY_ARRAY_BEHAVED)
+#define PyMicArray_ISBEHAVED_RO(m) PyMicArray_FLAGSWAP(m, NPY_ARRAY_ALIGNED)
+
 /* Type macros*/
 #define PyMicArray_ISBOOL(obj) PyTypeNum_ISBOOL(PyMicArray_TYPE(obj))
 #define PyMicArray_ISUNSIGNED(obj) PyTypeNum_ISUNSIGNED(PyMicArray_TYPE(obj))

@@ -13,12 +13,13 @@
 #define PY_SSIZE_T_CLEAN
 #include "Python.h"
 #include "structmember.h"
+#include <stdio.h>
 
 #define NPY_NO_DEPRECATED_API NPY_API_VERSION
 #define PY_ARRAY_UNIQUE_SYMBOL MICPY_ARRAY_API
 #define NO_IMPORT_ARRAY
 #include <numpy/arrayobject.h>
-#include <npy_pycompat.h>
+#include <numpy/npy_3kcompat.h>
 
 #define _MICARRAYMODULE
 #include "arrayobject.h"
