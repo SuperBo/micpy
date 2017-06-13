@@ -486,11 +486,28 @@ PyMicArray_New(int device, PyTypeObject *subtype, int nd, npy_intp *dims, int ty
  * Steals a reference to newtype --- which can be NULL
  */
 NPY_NO_EXPORT PyObject *
-PyMicArray_FromAny(PyObject *op, PyArray_Descr *newtype, int min_depth,
+PyMicArray_FromAny(int device, PyObject *op, PyArray_Descr *newtype, int min_depth,
                 int max_depth, int flags, PyObject *context)
 {
-    //TODO: implement
-    return NULL;
+    /*
+     * This is the main code to make a MicPy array from a Python
+     * Object.  It is called from many different places.
+     */
+
+    PyArrayObject *arr, *ret;
+
+    if (PyArrayCheck(op) || PyMicArray_Check(op)) {
+        arr = (PyArrayObject *) op;
+    }
+    else {
+        arr = (PyArrayObject *) PyArray_FromAny(op, newtype, min_depth, max_depth,
+                                                flags, context);
+    }
+
+    if (arr == NULL)
+        return NULL;
+
+    return PyMicArray_FromArray(arr, newtype, device, flags);
 }
 
 /*NUMPY_API

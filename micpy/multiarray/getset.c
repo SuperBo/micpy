@@ -487,7 +487,7 @@ array_real_set(PyMicArrayObject *self, PyObject *val)
 {
     PyMicArrayObject *ret;
     PyMicArrayObject *new;
-    int retcode;
+    int retcode, device;
 
     if (val == NULL) {
         PyErr_SetString(PyExc_AttributeError,
@@ -504,7 +504,8 @@ array_real_set(PyMicArrayObject *self, PyObject *val)
         Py_INCREF(self);
         ret = self;
     }
-    new = (PyMicArrayObject *)PyMicArray_FromAny(val, NULL, 0, 0, 0, NULL);
+    device = PyMicArray_DEVICE(self);
+    new = (PyMicArrayObject *)PyMicArray_FromAny(device, val, NULL, 0, 0, 0, NULL);
     if (new == NULL) {
         Py_DECREF(ret);
         return -1;
@@ -561,13 +562,14 @@ array_imag_set(PyMicArrayObject *self, PyObject *val)
     if (PyMicArray_ISCOMPLEX(self)) {
         PyMicArrayObject *ret;
         PyMicArrayObject *new;
-        int retcode;
+        int retcode, device;
 
         ret = _get_part(self, 1);
         if (ret == NULL) {
             return -1;
         }
-        new = (PyMicArrayObject *)PyMicArray_FromAny(val, NULL, 0, 0, 0, NULL);
+        device = PyMicArray_DEVICE(self);
+        new = (PyMicArrayObject *)PyMicArray_FromAny(device, val, NULL, 0, 0, 0, NULL);
         if (new == NULL) {
             Py_DECREF(ret);
             return -1;

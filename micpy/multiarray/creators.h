@@ -33,7 +33,7 @@ PyMicArray_Zeros(int device, int nd, npy_intp *dims,
 
 
 NPY_NO_EXPORT PyObject *
-PyMicArray_FromAny(PyObject *op, PyArray_Descr *newtype, int min_depth,
+PyMicArray_FromAny(int device, PyObject *op, PyArray_Descr *newtype, int min_depth,
                     int max_depth, int flags, PyObject *context);
 
 NPY_NO_EXPORT PyObject *
