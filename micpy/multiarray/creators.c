@@ -496,7 +496,7 @@ PyMicArray_FromAny(int device, PyObject *op, PyArray_Descr *newtype, int min_dep
 
     PyArrayObject *arr, *ret;
 
-    if (PyArrayCheck(op) || PyMicArray_Check(op)) {
+    if (PyArray_Check(op) || PyMicArray_Check(op)) {
         arr = (PyArrayObject *) op;
     }
     else {
