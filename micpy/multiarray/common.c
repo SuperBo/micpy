@@ -213,8 +213,8 @@ dot_alignment_error(PyMicArrayObject *a, int i, PyMicArrayObject *b, int j)
     i_obj = PyLong_FromLong(i);
     j_obj = PyLong_FromLong(j);
 
-    shape1_i = PyLong_FromSsize_t(PyArray_DIM(a, i));
-    shape2_j = PyLong_FromSsize_t(PyArray_DIM(b, j));
+    shape1_i = PyLong_FromSsize_t(PyMicArray_DIM(a, i));
+    shape2_j = PyLong_FromSsize_t(PyMicArray_DIM(b, j));
 
     if (!format || !shape1 || !shape2 || !i_obj || !j_obj ||
             !shape1_i || !shape2_j) {
@@ -266,4 +266,48 @@ npy_casting_to_string(NPY_CASTING casting)
         default:
             return "<unknown>";
     }
+}
+
+#define GET_DEVICE(ob, val) ((PyMicArray_Check(ob)) ? \
+            PyMicArray_DEVICE((PyMicArrayObject *)ob) : (val))
+
+NPY_NO_EXPORT int
+get_common_device2(PyObject *op1, PyObject *op2)
+{
+    int cpu_device = omp_get_initial_device();
+    int dev1, dev2;
+
+    dev1 = GET_DEVICE(op1, cpu_device);
+    dev2 = GET_DEVICE(op2, cpu_device);
+
+    /* Prefer current device if devices num are different */
+    if (dev1 != dev2) {
+        return CURRENT_DEVICE;
+    }
+
+    return dev1;
+}
+
+NPY_NO_EXPORT int
+get_common_device(PyObject **ops, int nop)
+{
+    int i, idevice, cdevice, cpu_device;
+    PyObject *iop;
+
+    cpu_device = omp_get_initial_device();
+
+    cdevice = GET_DEVICE(ops[0], cpu_device);
+
+    for (i = 1; i < nop; ++i) {
+        iop = ops[i];
+
+        idevice = GET_DEVICE(iop, cpu_device);
+
+        /* Return current device if devices num are different */
+        if (idevice != cdevice) {
+            return CURRENT_DEVICE;
+        }
+    }
+
+    return cdevice;
 }

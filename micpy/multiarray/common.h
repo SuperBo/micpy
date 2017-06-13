@@ -18,6 +18,15 @@ NPY_NO_EXPORT int PyMicArray_GetNumDevices(void);
 #define CURRENT_DEVICE (PyMicArray_GetCurrentDevice())
 #define DEFAULT_DEVICE (PyMicArray_GetCurrentDevice())
 
+/*
+ * Define a chunksize for CBLAS. CBLAS counts in integers.
+ */
+#if NPY_MAX_INTP > INT_MAX
+# define MPY_CBLAS_CHUNK  (INT_MAX / 2 + 1)
+#else
+# define MPY_CBLAS_CHUNK  NPY_MAX_INTP
+#endif
+
 #define error_converting(x)  (((x) == -1) && PyErr_Occurred())
 
 NPY_NO_EXPORT int
@@ -46,6 +55,12 @@ npy_casting_to_string(NPY_CASTING casting);
 
 NPY_NO_EXPORT void
 dot_alignment_error(PyMicArrayObject *a, int i, PyMicArrayObject *b, int j);
+
+NPY_NO_EXPORT int
+get_common_device2(PyObject *op1, PyObject *op2);
+
+NPY_NO_EXPORT int
+get_common_device(PyObject **ops, int nop);
 
 /*
  * return true if pointer is aligned to 'alignment'
@@ -123,13 +138,13 @@ blas_stride(npy_intp stride, unsigned itemsize)
     return 0;
 }
 
-/*
- * Define a chunksize for CBLAS. CBLAS counts in integers.
- */
-#if NPY_MAX_INTP > INT_MAX
-# define MPY_CBLAS_CHUNK  (INT_MAX / 2 + 1)
-#else
-# define MPY_CBLAS_CHUNK  NPY_MAX_INTP
-#endif
+/* Memset on target */
+static NPY_INLINE void *
+target_memset(void *ptr, int value, size_t num, int device_num)
+{
+    #pragma omp target device(device_num) map(to: ptr, value, num)
+    memset(ptr, value, num);
+    return ptr;
+}
 
 #endif
