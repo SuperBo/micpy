@@ -7,6 +7,7 @@
 #define PY_ARRAY_UNIQUE_SYMBOL MICPY_ARRAY_API
 #include <numpy/arrayobject.h>
 
+#define _MICARRAYMODULE
 #include "arrayobject.h"
 
 /*
@@ -23,6 +24,8 @@ PyMicArray_CanCastArrayTo(PyMicArrayObject *arr, PyArray_Descr *to,
 
     return PyArray_CanCastTypeTo(from, to, casting);
 }
+
+
 
 /*
  * This function calls Py_DECREF on flex_dtype, and replaces it with
@@ -48,4 +51,41 @@ PyMicArray_AdaptFlexibleDType(PyObject *data_obj, PyArray_Descr *data_dtype,
      * might enable in the future
      */
     return;
+}
+
+NPY_NO_EXPORT int
+PyMicArray_ObjectType(PyObject *op, int minimum_type)
+{
+    PyArray_Descr *min_dtype = NULL;
+    PyArray_Descr *dtype, *res_dtype;
+    int ret;
+
+    if (!PyMicArray_Check(op) && !PyArray_Check(op)) {
+        return PyArray_ObjectType(op, minimum_type);
+    }
+
+    if (minimum_type != NPY_NOTYPE && minimum_type >= 0) {
+        min_dtype = PyArray_DescrFromType(minimum_type);
+        if (min_dtype == NULL) {
+            return NPY_NOTYPE;
+        }
+    }
+
+    dtype = PyArray_DESCR((PyArrayObject *)op);
+
+    /* Do type promotion with 'dtype' */
+    res_dtype = PyArray_PromoteTypes(dtype, min_dtype);
+
+    if (res_dtype == NULL) {
+        ret = NPY_DEFAULT_TYPE;
+    }
+    else {
+        ret = res_dtype->type_num;
+    }
+
+    Py_DECREF(min_dtype);
+    Py_DECREF(dtype);
+    Py_XDECREF(res_dtype);
+
+    return ret;
 }

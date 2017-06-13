@@ -16,4 +16,7 @@ NPY_NO_EXPORT void
 PyMicArray_AdaptFlexibleDType(PyObject *data_obj, PyArray_Descr *data_dtype,
                             PyArray_Descr **flex_dtype);
 
+NPY_NO_EXPORT int
+PyMicArray_ObjectType(PyObject *op, int minimum_type);
+
 #endif
