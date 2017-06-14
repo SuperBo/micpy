@@ -22,6 +22,7 @@
 #include "item_selection.h"
 #include "methods.h"
 #include "calculation.h"
+#include "multiarraymodule.h"
 
 
 /* NpyArg_ParseKeywords
@@ -1033,8 +1034,27 @@ array_cumprod(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 static PyObject *
 array_dot(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 {
-    //TODO
-    return NULL;
+    PyObject *a = (PyObject *)self, *b, *o = NULL;
+    PyMicArrayObject *ret;
+    char* kwlist[] = {"b", "out", NULL };
+
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O:dot", kwlist, &b, &o)) {
+        return NULL;
+    }
+
+    if (o != NULL) {
+        if (o == Py_None) {
+            o = NULL;
+        }
+        else if (!PyMicArray_Check(o)) {
+            PyErr_SetString(PyExc_TypeError,
+                            "'out' must be an mic array");
+            return NULL;
+        }
+    }
+    ret = (PyMicArrayObject *)PyMicArray_MatrixProduct2(a, b, (PyMicArrayObject *)o);
+    return PyMicArray_Return(ret);
 }
 
 
@@ -1417,11 +1437,11 @@ NPY_NO_EXPORT PyMethodDef array_methods[] = {
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"diagonal",
         (PyCFunction)array_diagonal,
-        METH_VARARGS | METH_KEYWORDS, NULL},
+        METH_VARARGS | METH_KEYWORDS, NULL},*/
     {"dot",
         (PyCFunction)array_dot,
         METH_VARARGS | METH_KEYWORDS, NULL},
-    {"fill",
+    /*{"fill",
         (PyCFunction)array_fill,
         METH_VARARGS, NULL},
     {"flatten",

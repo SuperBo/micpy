@@ -22,16 +22,17 @@ private_npy_defines = [('HAVE_ENDIAN_H', 1),
 
 def add_multiarray_ext(config):
     multiarray_sources = ['alloc.c', 'array_assign.c', 'arrayobject.c',
-            'common.c', 'calculation.c', 'convert.c',
+            'cblasfuncs.c', 'common.c', 'calculation.c', 'convert.c',
             'conversion_utils.c', 'creators.c', 'getset.c',
             'methods.c', 'shape.c', 'scalar.c', 'item_selection.c',
-            'convert_datatype.c', 'dtype_transfer.c',
+            'convert_datatype.c', 'dtype_transfer.c', 'mpymem_overlap.c'
             'nditer_templ.c.src', 'nditer_constr.c', 'nditer_api.c',
+            'arraytypes.c.src',
             'multiarraymodule.c']
     multiarray_sources = [join(multiarray_dir, f) for f in multiarray_sources]
 
     #Add numpy/private/mem_overlap.c to sources
-    multiarray_sources += [join(numpy_private_dir, 'mem_overlap.c'),
+    multiarray_sources += [
             join(numpy_private_dir, 'templ_common.h.src')]
 
     #TODO: find a better way to define NMAXDEVICES
@@ -40,7 +41,9 @@ def add_multiarray_ext(config):
                         sources=multiarray_sources,
                         define_macros=private_npy_defines +
                                 [('NMAXDEVICES', '2')],
-                        include_dirs=[multiarray_dir])
+                        include_dirs=[multiarray_dir],
+                        libraries=['mpymath'],
+                        extra_link_args=['-mkl'])
 
 
 def add_mpymath_lib(config):
@@ -71,9 +74,9 @@ def add_umath_ext(config):
     umath_dir = join('micpy', 'umath')
 
     umath_sources = ['umathmodule.c', 'mufunc_object.c',
-            'output_creators.c',
-            'funcs.inc.src', 'loops.h.src', 'loops.c.src',
-            'simd.inc.src']
+                     'output_creators.c',
+                     'funcs.inc.src', 'loops.h.src', 'loops.c.src',
+                     'simd.inc.src']
     umath_sources = [join(umath_dir, f) for f in umath_sources]
     umath_sources.append(join(mpymath_dir, 'non_standards.h.src'))
     umath_sources.append(generate_umath_c)

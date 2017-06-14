@@ -12,4 +12,7 @@ NPY_VISIBILITY_HIDDEN extern PyObject * mpy_ma_str_copy;
 NPY_VISIBILITY_HIDDEN extern PyObject * mpy_ma_str_dtype;
 NPY_VISIBILITY_HIDDEN extern PyObject * mpy_ma_str_ndmin;
 
+NPY_NO_EXPORT PyObject *
+PyMicArray_MatrixProduct2(PyObject *op1, PyObject *op2, PyMicArrayObject* out);
+
 #endif

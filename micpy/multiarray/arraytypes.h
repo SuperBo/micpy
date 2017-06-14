@@ -17,6 +17,8 @@ DOUBLE_dot(char *, npy_intp, char *, npy_intp, char *, npy_intp, int);
 NPY_NO_EXPORT void
 CDOUBLE_dot(char *, npy_intp, char *, npy_intp, char *, npy_intp, int);
 
+NPY_NO_EXPORT PyMicArray_ArrFuncs *
+PyMicArray_GetArrFuncs(int typenum);
 
 /* for _pyarray_correlate */
 NPY_NO_EXPORT int

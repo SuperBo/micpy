@@ -27,11 +27,12 @@
 //#include "_datetime.h"
 #include "arrayobject.h"
 #include "alloc.h"
+#include "mpyndarraytypes.h"
 
 //#include "numpyos.h"
-#include <string.h>
+//#include <string.h>
 
-//#include "cblasfuncs.h"
+#include "cblasfuncs.h"
 #include <mkl.h>
 //#include "npy_cblas.h"
 #include <limits.h>
@@ -57,6 +58,336 @@
  **                       TYPE TO TYPE CONVERSIONS                          **
  *****************************************************************************
  */
+
+
+/* Assumes contiguous, and aligned, from and to */
+
+
+/**begin repeat
+ *
+ * #TOTYPE = BYTE, UBYTE, SHORT, USHORT, INT, UINT, LONG, ULONG,
+ *           LONGLONG, ULONGLONG, FLOAT, DOUBLE, LONGDOUBLE, DATETIME,
+ *           TIMEDELTA#
+ * #totype = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *           npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *           npy_float, npy_double, npy_longdouble,
+ *           npy_datetime, npy_timedelta#
+ */
+
+/**begin repeat1
+ *
+ * #FROMTYPE = BYTE, UBYTE, SHORT, USHORT, INT, UINT, LONG, ULONG,
+ *             LONGLONG, ULONGLONG, FLOAT, DOUBLE, LONGDOUBLE, DATETIME,
+ *             TIMEDELTA#
+ * #fromtype = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *             npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *             npy_float, npy_double, npy_longdouble,
+ *             npy_datetime, npy_timedelta#
+ */
+static void
+@FROMTYPE@_to_@TOTYPE@(void *input, void *output, npy_intp n,
+                       int device)
+{
+    npy_intp i;
+    const @fromtype@ *ip = input;
+    @totype@ *op = output;
+
+    #pragma omp target device(device) map(to: op, ip, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (@totype@)*ip++;
+    }
+}
+/**end repeat1**/
+
+/**begin repeat1
+ *
+ * #FROMTYPE = CFLOAT, CDOUBLE, CLONGDOUBLE#
+ * #fromtype = npy_float, npy_double, npy_longdouble#
+ */
+static void
+@FROMTYPE@_to_@TOTYPE@(void *input, void *output, npy_intp n,
+                       int device)
+{
+    npy_intp i;
+    const @fromtype@ *ip = input;
+    @totype@ *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (@totype@)*ip;
+        ip += 2;
+    }
+}
+/**end repeat1**/
+
+/**end repeat**/
+
+
+/**begin repeat
+ *
+ * #TYPE = BYTE, UBYTE, SHORT, USHORT, INT, UINT, LONG, ULONG,
+ *         LONGLONG, ULONGLONG, LONGDOUBLE, DATETIME,
+ *         TIMEDELTA#
+ * #type = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_longdouble,
+ *         npy_datetime, npy_timedelta#
+ */
+
+static void
+@TYPE@_to_HALF(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const @type@ *ip = input;
+    npy_half *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = mpy_float_to_half((float)(*ip++));
+    }
+}
+
+static void
+HALF_to_@TYPE@(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const npy_half *ip = input;
+    @type@ *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (@type@)mpy_half_to_float(*ip++);
+    }
+}
+
+/**end repeat**/
+#if NPY_SIZEOF_SHORT == 2
+#define HALF_to_HALF SHORT_to_SHORT
+#elif NPY_SIZEOF_INT == 2
+#define HALF_to_HALF INT_to_INT
+#endif
+
+/**begin repeat
+ *
+ * #TYPE = FLOAT, DOUBLE, CFLOAT, CDOUBLE#
+ * #name = float, double, float, double#
+ * #itype = npy_uint32, npy_uint64, npy_uint32, npy_uint64#
+ * #iscomplex = 0, 0, 1, 1#
+ */
+
+static void
+@TYPE@_to_HALF(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const @itype@ *ip = input;
+    npy_half *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = mpy_@name@bits_to_halfbits(*ip);
+#if @iscomplex@
+        ip += 2;
+#else
+        ip++;
+#endif
+    }
+}
+
+static void
+HALF_to_@TYPE@(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const npy_half *ip = input;
+    @itype@ *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = mpy_halfbits_to_@name@bits(*ip++);
+#if @iscomplex@
+        *op++ = 0;
+#endif
+    }
+}
+
+/**end repeat**/
+
+static void
+CLONGDOUBLE_to_HALF(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const npy_longdouble *ip = input;
+    npy_half *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = mpy_double_to_half((double) (*ip++));
+        ip += 2;
+    }
+}
+
+static void
+HALF_to_CLONGDOUBLE(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const npy_half *ip = input;
+    npy_longdouble *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = mpy_half_to_double(*ip++);
+        *op++ = 0;
+    }
+}
+
+/**begin repeat
+ *
+ * #FROMTYPE = BOOL,
+ *             BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *             LONG, ULONG, LONGLONG, ULONGLONG,
+ *             FLOAT, DOUBLE, LONGDOUBLE,
+ *             DATETIME, TIMEDELTA#
+ * #fromtype = npy_bool,
+ *             npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *             npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *             npy_float, npy_double, npy_longdouble,
+ *             npy_datetime, npy_timedelta#
+ */
+static void
+@FROMTYPE@_to_BOOL(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const @fromtype@ *ip = input;
+    npy_bool *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (npy_bool)(*ip++ != NPY_FALSE);
+    }
+}
+/**end repeat**/
+
+static void
+HALF_to_BOOL(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const npy_half *ip = input;
+    npy_bool *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (npy_bool)(!mpy_half_iszero(*ip++));
+    }
+}
+
+/**begin repeat
+ *
+ * #FROMTYPE = CFLOAT, CDOUBLE, CLONGDOUBLE#
+ * #fromtype = npy_cfloat, npy_cdouble, npy_clongdouble#
+ */
+static void
+@FROMTYPE@_to_BOOL(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const @fromtype@ *ip = input;
+    npy_bool *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op = (npy_bool)((ip->real != NPY_FALSE) ||
+                (ip->imag != NPY_FALSE));
+        op++;
+        ip++;
+    }
+}
+/**end repeat**/
+
+/**begin repeat
+ * #TOTYPE = BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *           LONG, ULONG, LONGLONG, ULONGLONG,
+ *           HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *           DATETIME, TIMEDELTA#
+ * #totype = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *           npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *           npy_half, npy_float, npy_double, npy_longdouble,
+ *           npy_datetime, npy_timedelta#
+ * #one = 1*10, NPY_HALF_ONE, 1*5#
+ * #zero = 0*10, NPY_HALF_ZERO, 0*5#
+ */
+static void
+BOOL_to_@TOTYPE@(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const npy_bool *ip = input;
+    @totype@ *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (@totype@)((*ip++ != NPY_FALSE) ? @one@ : @zero@);
+    }
+}
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #TOTYPE = CFLOAT, CDOUBLE,CLONGDOUBLE#
+ * #totype = npy_float, npy_double, npy_longdouble#
+ */
+
+/**begin repeat1
+ * #FROMTYPE = BOOL,
+ *             BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *             LONG, ULONG, LONGLONG, ULONGLONG,
+ *             FLOAT, DOUBLE, LONGDOUBLE,
+ *             DATETIME, TIMEDELTA#
+ * #fromtype = npy_bool,
+ *             npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *             npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *             npy_float, npy_double, npy_longdouble,
+ *             npy_datetime, npy_timedelta#
+ */
+static void
+@FROMTYPE@_to_@TOTYPE@(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const @fromtype@ *ip = input;
+    @totype@ *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (@totype@)*ip++;
+        *op++ = 0.0;
+    }
+}
+/**end repeat1**/
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #TOTYPE = CFLOAT,CDOUBLE,CLONGDOUBLE#
+ * #totype = npy_float, npy_double, npy_longdouble#
+ */
+
+/**begin repeat1
+ * #FROMTYPE = CFLOAT,CDOUBLE,CLONGDOUBLE#
+ * #fromtype = npy_float, npy_double, npy_longdouble#
+ */
+static void
+@FROMTYPE@_to_@TOTYPE@(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const @fromtype@ *ip = input;
+    @totype@ *op = output;
+
+    n <<= 1;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (@totype@)*ip++;
+    }
+}
+
+/**end repeat1**/
+/**end repeat**/
 
 
 /*
@@ -615,7 +946,7 @@ static int
  * #prefix = s, d#
  */
 NPY_NO_EXPORT void
-@name@_dot(char *ip1, npy_intp is1, char *ip2, npy_intp is2, char *op,
+@name@_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2, void *op,
            npy_intp n, int device)
 {
     int is1b = blas_stride(is1, sizeof(@type@));
@@ -623,11 +954,13 @@ NPY_NO_EXPORT void
 
     if (is1b && is2b)
     {
-        double sum; /* double for stability */
-        #pragma omp target device(device) map(to: n, ip1, is1b, ip2, is2b) \
-                                          map(from: sum)
+        #pragma omp target device(device) map(to: op, n, _ip1, is1, is1b,\
+                                                  _ip2, is2, is2b)
         {
-            sum = 0.0;  
+            char *ip1 = (char *) _ip1;
+            char *ip2 = (char *) _ip2;
+
+            double sum = 0.0; /* double for stability */
 
             while (n > 0) {
                 int chunk = n < MPY_CBLAS_CHUNK ? n : MPY_CBLAS_CHUNK;
@@ -640,26 +973,27 @@ NPY_NO_EXPORT void
                 ip2 += chunk * is2;
                 n -= chunk;
             }
+            *((@type@ *)op) = (@type@)sum;
         }
-        *((@type@ *)op) = (@type@)sum;
     }
     else
     {
-        double sum;  /* could make this double */
-        npy_intp i;
-
-        #pragma omp target device(device) map(to: n, ip1, is1, ip2, is2)\
-                                          map(from: sum)
+        #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
         {
-            sum = 0.0;
+            char *ip1 = (char *) _ip1;
+            char *ip2 = (char *) _ip2;
+
+            @type@ sum = (@type@)0;  /* could make this double */
+            npy_intp i;
+
             for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
                 const @type@ ip1r = *((@type@ *)ip1);
                 const @type@ ip2r = *((@type@ *)ip2);
 
                 sum += ip1r * ip2r;
             }
+            *((@type@ *)op) = sum;
         }
-        *((@type@ *)op) = sum;
     }
 }
 /**end repeat**/
@@ -672,19 +1006,20 @@ NPY_NO_EXPORT void
  * #prefix = c, z#
  */
 NPY_NO_EXPORT void
-@name@_dot(char *ip1, npy_intp is1, char *ip2, npy_intp is2,
-           char *op, npy_intp n, int device)
+@name@_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2,
+           void *op, npy_intp n, int device)
 {
     int is1b = blas_stride(is1, sizeof(@ctype@));
     int is2b = blas_stride(is2, sizeof(@ctype@));
 
     if (is1b && is2b) {
-        double sum[2]; /* double for stability */
-
-        #pragma omp target device(device) map(to: n, ip1, is1b, ip2, is2b)\
-                                          map(from: sum)
+        #pragma omp target device(device) map(to: op, n, _ip1, is1, is1b,\
+                                                  _ip2, is2, is2b)
         {
-            sum[0] = sum[1] = 0.0;
+            char *ip1 = (char *) _ip1;
+            char *ip2 = (char *) _ip2;
+
+            double sum[2] = {0., 0.};  /* double for stability */
 
             while (n > 0) {
                 int chunk = n < MPY_CBLAS_CHUNK ? n : MPY_CBLAS_CHUNK;
@@ -698,20 +1033,20 @@ NPY_NO_EXPORT void
                 ip2 += chunk * is2;
                 n -= chunk;
             }
+            ((@type@ *)op)[0] = (@type@)sum[0];
+            ((@type@ *)op)[1] = (@type@)sum[1];
         }
-        ((@type@ *)op)[0] = (@type@)sum[0];
-        ((@type@ *)op)[1] = (@type@)sum[1];
     }
-    else
-    {
-        double sumr, sumi; /* double for stability */
-
-        npy_intp i;
-
-        #pragma omp target device(device) map(to: n, ip1, is1, ip2, is2)\
-                                          map(from: sumr, sumi)
+    else {
+        #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
         {
-            sumr = sumi = 0.0;
+            char *ip1 = (char *) _ip1;
+            char *ip2 = (char *) _ip2;
+
+            @type@ sumr = (@type@)0.0;
+            @type@ sumi = (@type@)0.0;
+            npy_intp i;
+
             for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
                 const @type@ ip1r = ((@type@ *)ip1)[0];
                 const @type@ ip1i = ((@type@ *)ip1)[1];
@@ -721,9 +1056,9 @@ NPY_NO_EXPORT void
                 sumr += ip1r * ip2r - ip1i * ip2i;
                 sumi += ip1r * ip2i + ip1i * ip2r;
             }
+            ((@type@ *)op)[0] = sumr;
+            ((@type@ *)op)[1] = sumi;
         }
-        ((@type@ *)op)[0] = sumr;
-        ((@type@ *)op)[1] = sumi;
     }
 }
 
@@ -732,24 +1067,25 @@ NPY_NO_EXPORT void
 /**************************** NO CBLAS VERSIONS *****************************/
 
 static void
-BOOL_dot(char *ip1, npy_intp is1, char *ip2, npy_intp is2, char *op, npy_intp n,
+BOOL_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2, void *op, npy_intp n,
          int device)
 {
-    npy_bool tmp;
-    npy_intp i;
+    #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
+    {
+        char *ip1 = (char *) _ip1;
+        char *ip2 = (char *) _ip2;
 
-    #pragma omp target device(device) map(to: n, ip1, is1, ip2, is2)\
-                                      map(from: tmp)
-    {                               
-        tmp = NPY_FALSE;
+        npy_bool tmp = NPY_FALSE;
+        npy_intp i;
+
         for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
             if ((*((npy_bool *)ip1) != 0) && (*((npy_bool *)ip2) != 0)) {
                 tmp = NPY_TRUE;
                 break;
             }
         }
+        *((npy_bool *)op) = tmp;
     }
-    *((npy_bool *)op) = tmp;
 }
 
 /**begin repeat
@@ -765,56 +1101,59 @@ BOOL_dot(char *ip1, npy_intp is1, char *ip2, npy_intp is2, char *op, npy_intp n,
  *        npy_longdouble, npy_datetime, npy_timedelta#
  */
 static void
-@name@_dot(char *ip1, npy_intp is1, char *ip2, npy_intp is2, char *op, npy_intp n,
+@name@_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2, void *op, npy_intp n,
            int device)
 {
-    @out@ tmp;
-    npy_intp i;
-
-    #pragma omp target device(device) map(to: n, ip1, is1, ip2, is2)\
-                                      map(from: tmp)
+    #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
     {
-        tmp = (@out@)0;
+        char *ip1 = (char *) _ip1;
+        char *ip2 = (char *) _ip2;
+
+        @out@ tmp = (@out@)0;
+        npy_intp i;
+
         for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
             tmp += (@out@)(*((@type@ *)ip1)) *
                 (@out@)(*((@type@ *)ip2));
         }
+        *((@type@ *)op) = (@type@) tmp;
     }
-    *((@type@ *)op) = (@type@) tmp;
 }
 /**end repeat**/
 
 static void
-HALF_dot(char *ip1, npy_intp is1, char *ip2, npy_intp is2, char *op,
-         npy_intp n, int device) 
+HALF_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2, void *op,
+         npy_intp n, int device)
 {
-    float tmp = 0.0f;
-    npy_intp i;
-
-    #pragma omp target device(device) map(to: n, ip1, is1, ip2, is2)\
-                                      map(from: tmp)
+    #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
     {
-        tmp = 0.0f;
+        char *ip1 = (char *) _ip1;
+        char *ip2 = (char *) _ip2;
+
+        float tmp = 0.0f;
+        npy_intp i;
+
         for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
             tmp += mpy_half_to_float(*((npy_half *)ip1)) *
                 mpy_half_to_float(*((npy_half *)ip2));
         }
+        *((npy_half *)op) = mpy_float_to_half(tmp);
     }
-    *((npy_half *)op) = mpy_float_to_half(tmp);
 }
 
 static void
-CLONGDOUBLE_dot(char *ip1, npy_intp is1, char *ip2, npy_intp is2,
-                            char *op, npy_intp n, int device)
+CLONGDOUBLE_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2,
+                            void *op, npy_intp n, int device)
 {
-    npy_longdouble tmpr = 0.0L;
-    npy_longdouble tmpi = 0.0L;
-    npy_intp i;
-
-    #pragma omp target device(device) map(to: n, ip1, is1, ip2, is2)\
-                                      map(from: tmpr, tmpi)
+    #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
     {
-        tmpr = tmpi = 0.0L;
+        char *ip1 = (char *) _ip1;
+        char *ip2 = (char *) _ip2;
+
+        npy_longdouble tmpr = 0.0L;
+        npy_longdouble tmpi = 0.0L;
+        npy_intp i;
+
         for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
             const npy_longdouble ip1r = ((npy_longdouble *)ip1)[0];
             const npy_longdouble ip1i = ((npy_longdouble *)ip1)[1];
@@ -824,9 +1163,9 @@ CLONGDOUBLE_dot(char *ip1, npy_intp is1, char *ip2, npy_intp is2,
             tmpr += ip1r * ip2r - ip1i * ip2i;
             tmpi += ip1r * ip2i + ip1i * ip2r;
         }
+        ((npy_longdouble *)op)[0] = tmpr;
+        ((npy_longdouble *)op)[1] = tmpi;
     }
-    ((npy_longdouble *)op)[0] = tmpr;
-    ((npy_longdouble *)op)[1] = tmpi;
 }
 
 
@@ -856,10 +1195,9 @@ CLONGDOUBLE_dot(char *ip1, npy_intp is1, char *ip2, npy_intp is2,
 static void
 @NAME@_fill(@type@ *buffer, npy_intp length, int device)
 {
-    npy_intp i;
-
     #pragma omp target device(device) map(to: buffer, length)
     {
+        npy_intp i;
         @type@ start = buffer[0];
         @type@ delta = buffer[1];
 
@@ -874,10 +1212,9 @@ static void
 static void
 HALF_fill(npy_half *buffer, npy_intp length, int device)
 {
-    npy_intp i;
-
     #pragma omp target device(device) map(to: buffer, length)
     {
+        npy_intp i;
         float start = mpy_half_to_float(buffer[0]);
         float delta = mpy_half_to_float(buffer[1]);
 
@@ -896,12 +1233,11 @@ HALF_fill(npy_half *buffer, npy_intp length, int device)
 static void
 @NAME@_fill(@type@ *buffer, npy_intp length, int device)
 {
-    npy_intp i;
-    @type@ start;
-    @type@ delta;
-
     #pragma omp target device(device) map(to: buffer, length)
     {
+        npy_intp i;
+        @type@ start;
+        @type@ delta;
         start.real = buffer->real;
         start.imag = buffer->imag;
         delta.real = buffer[1].real;
@@ -1208,6 +1544,120 @@ static void
  */
 
 
+ /**begin repeat
+ *
+ * #name = BOOL,
+ *         BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *         LONG, ULONG, LONGLONG, ULONGLONG,
+ *         HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *         CFLOAT, CDOUBLE, CLONGDOUBLE,
+ *         DATETIME, TIMEDELTA#
+ * #type = npy_bool,
+ *         npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_half, npy_float, npy_double, npy_longdouble,
+ *         npy_cfloat, npy_cdouble, npy_clongdouble,
+ *         npy_datetime, npy_timedelta#
+*/
+static int
+@name@_fasttake(@type@ *dest, @type@ *src, npy_intp *indarray,
+                    npy_intp nindarray, npy_intp n_outer,
+                    npy_intp m_middle, npy_intp nelem,
+                    NPY_CLIPMODE clipmode, int device)
+{
+    npy_intp i, j, k, tmp;
+    NPY_BEGIN_THREADS_DEF;
+
+    NPY_BEGIN_THREADS;
+
+    switch(clipmode) {
+    case NPY_RAISE:
+        for (i = 0; i < n_outer; i++) {
+            for (j = 0; j < m_middle; j++) {
+                tmp = indarray[j];
+                /*
+                 * We don't know what axis we're operating on,
+                 * so don't report it in case of an error.
+                 */
+                if (check_and_adjust_index(&tmp, nindarray, -1, _save) < 0) {
+                    return 1;
+                }
+                #pragma omp target device(device) map(to: nelem, dest, src, tmp) \
+                                                  map(from: dest)
+                if (NPY_LIKELY(nelem == 1)) {
+                    *dest++ = *(src + tmp);
+                }
+                else {
+                    for (k = 0; k < nelem; k++) {
+                        *dest++ = *(src + tmp*nelem + k);
+                    }
+                }
+            }
+            src += nelem*nindarray;
+        }
+        break;
+    case NPY_WRAP:
+        #pragma omp target device(device) \
+                           map(to: n_outer, m_middle, nindarray, nelem,\
+                                   dest, src, indarray[0:nindarray])
+        for (i = 0; i < n_outer; i++) {
+            for (j = 0; j < m_middle; j++) {
+                tmp = indarray[j];
+                if (tmp < 0) {
+                    while (tmp < 0) {
+                        tmp += nindarray;
+                    }
+                }
+                else if (tmp >= nindarray) {
+                    while (tmp >= nindarray) {
+                        tmp -= nindarray;
+                    }
+                }
+                if (NPY_LIKELY(nelem == 1)) {
+                    *dest++ = *(src+tmp);
+                }
+                else {
+                    for (k = 0; k < nelem; k++) {
+                        *dest++ = *(src+tmp*nelem+k);
+                    }
+                }
+            }
+            src += nelem*nindarray;
+        }
+        break;
+    case NPY_CLIP:
+        #pragma omp target device(device) \
+                           map(to: n_outer, m_middle, nindarray, nelem,\
+                                   dest, src, indarray[0:nindarray])
+        for (i = 0; i < n_outer; i++) {
+            for (j = 0; j < m_middle; j++) {
+                tmp = indarray[j];
+                if (tmp < 0) {
+                    tmp = 0;
+                }
+                else if (tmp >= nindarray) {
+                    tmp = nindarray - 1;
+                }
+                if (NPY_LIKELY(nelem == 1)) {
+                    *dest++ = *(src + tmp);
+                }
+                else {
+                    for (k = 0; k < nelem; k++) {
+                        *dest++ = *(src + tmp*nelem + k);
+                    }
+                }
+            }
+            src += nelem*nindarray;
+        }
+        break;
+    }
+
+    NPY_END_THREADS;
+    return 0;
+}
+/**end repeat**/
+
+
 #define OBJECT_fasttake NULL
 
 /*
@@ -1303,6 +1753,118 @@ small_correlate(const char * d_, npy_intp dstride,
  */
 
 
+#define _ALIGN(type) offsetof(struct {char c; type v;}, v)
+/*
+ * Disable harmless compiler warning "4116: unnamed type definition in
+ * parentheses" which is caused by the _ALIGN macro.
+ */
+#if defined(_MSC_VER)
+#pragma warning(disable:4116)
+#endif
+
+//TODO: enable sort after implementation
+
+/**begin repeat
+ *
+ * #from = BOOL,
+ *         BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *         LONG, ULONG, LONGLONG, ULONGLONG,
+ *         HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *         CFLOAT, CDOUBLE, CLONGDOUBLE,
+ *         DATETIME, TIMEDELTA#
+ * #suff = bool,
+ *         byte, ubyte, short, ushort, int, uint,
+ *         long, ulong, longlong, ulonglong,
+ *         half, float, double, longdouble,
+ *         cfloat, cdouble, clongdouble,
+ *         datetime, timedelta#
+ * #sort = 0*18, 0*2#
+ * #num = 1*15, 2*3, 1*2#
+ * #fromtype = npy_bool,
+ *             npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *             npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *             npy_half, npy_float, npy_double, npy_longdouble,
+ *             npy_float, npy_double, npy_longdouble,
+ *             npy_datetime, npy_timedelta#
+ * #NAME = Bool,
+ *         Byte, UByte, Short, UShort, Int, UInt,
+ *         Long, ULong, LongLong, ULongLong,
+ *         Half, Float, Double, LongDouble,
+ *         CFloat, CDouble, CLongDouble,
+ *         Datetime, Timedelta#
+ * #kind = GENBOOL,
+ *         SIGNED, UNSIGNED, SIGNED, UNSIGNED, SIGNED, UNSIGNED,
+ *         SIGNED, UNSIGNED, SIGNED, UNSIGNED,
+ *         FLOATING, FLOATING, FLOATING, FLOATING,
+ *         COMPLEX, COMPLEX, COMPLEX,
+ *         DATETIME, TIMEDELTA#
+ * #endian = |*3, =*15, =*2#
+ * #isobject= 0*18,0*2#
+ */
+
+static PyMicArray_ArrFuncs _Py@NAME@_MicArrFuncs = {
+    {
+        @from@_to_BOOL,
+        @from@_to_BYTE,
+        @from@_to_UBYTE,
+        @from@_to_SHORT,
+        @from@_to_USHORT,
+        @from@_to_INT,
+        @from@_to_UINT,
+        @from@_to_LONG,
+        @from@_to_ULONG,
+        @from@_to_LONGLONG,
+        @from@_to_ULONGLONG,
+        @from@_to_FLOAT,
+        @from@_to_DOUBLE,
+        @from@_to_LONGDOUBLE,
+        @from@_to_CFLOAT,
+        @from@_to_CDOUBLE,
+        @from@_to_CLONGDOUBLE,
+        NULL,
+        NULL,
+        NULL
+    },
+    NULL, //TODO: @from@_getitem,
+    NULL, //TODO: @from@_setitem,
+    NULL, //TODO: (PyMicArray_CopySwapNFunc*)@from@_copyswapn,
+    NULL, //TODO: (PyMicArray_CopySwapFunc*)@from@_copyswap,
+    NULL, //TODO: (PyMicArray_CompareFunc*)@from@_compare,
+    (PyMicArray_ArgFunc*)@from@_argmax,
+    (PyMicArray_DotFunc*)@from@_dot,
+    NULL, //TODO: (PyArray_NonzeroFunc*)@from@_nonzero,
+    (PyMicArray_FillFunc*)@from@_fill,
+    (PyMicArray_FillWithScalarFunc*)@from@_fillwithscalar,
+#if @sort@
+    {
+        quicksort_@suff@,
+        heapsort_@suff@,
+        mergesort_@suff@
+    },
+    {
+        aquicksort_@suff@,
+        aheapsort_@suff@,
+        amergesort_@suff@
+    },
+#else
+    {
+        NULL, NULL, NULL
+    },
+    {
+        NULL, NULL, NULL
+    },
+#endif
+
+    (PyMicArray_FastClipFunc*)@from@_fastclip,
+    (PyMicArray_FastPutmaskFunc*)@from@_fastputmask,
+    (PyMicArray_FastTakeFunc*)@from@_fasttake,
+    (PyMicArray_ArgFunc*)@from@_argmin
+};
+
+
+/**end repeat**/
+
+
 /*
  *****************************************************************************
  **                             SETUP TYPE INFO                             **
@@ -1310,3 +1872,37 @@ small_correlate(const char * d_, npy_intp dstride,
  */
 
 
+/*
+ *****************************************************************************
+ **                             SWITCH TYPES FUNC                           **
+ *****************************************************************************
+ */
+
+NPY_NO_EXPORT PyMicArray_ArrFuncs *
+PyMicArray_GetArrFuncs(int typenum) {
+    switch (typenum) {
+/**begin repeat
+ *
+ * #type = BOOL,
+ *         BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *         LONG, ULONG, LONGLONG, ULONGLONG,
+ *         HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *         CFLOAT, CDOUBLE, CLONGDOUBLE,
+ *         DATETIME, TIMEDELTA#
+ * #NAME = Bool,
+ *         Byte, UByte, Short, UShort, Int, UInt,
+ *         Long, ULong, LongLong, ULongLong,
+ *         Half, Float, Double, LongDouble,
+ *         CFloat, CDouble, CLongDouble,
+ *         Datetime, Timedelta#
+ */
+
+    case NPY_@type@:
+        return &_Py@NAME@_MicArrFuncs;
+
+ /**end repeat**/
+    }
+
+    /*  Return defalut type */
+    return NULL;
+}

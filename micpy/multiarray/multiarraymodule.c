@@ -34,6 +34,8 @@
 //#include "calculation.h"
 //#include "number.h"
 //#include "numpymemoryview.h"
+#include "mpyndarraytypes.h"
+#include "arraytypes.h"
 #include "array_assign.h"
 #include "conversion_utils.h"
 #include "methods.h"
@@ -45,6 +47,9 @@
 #include "shape.h"
 #include "scalar.h"
 #include "nditer.h"
+#include "cblasfuncs.h"
+#include "mpymem_overlap.h"
+#include "convert_datatype.h"
 
 static int num_devices;
 static int current_device;
@@ -88,17 +93,246 @@ _signbit_set(PyArrayObject *arr)
 /*
  * Make a new empty array, of the passed size, of a type that takes the
  * priority of ap1 and ap2 into account.
+ * Assume that all arrays are on one device
  */
-static PyArrayObject *
-new_array_for_sum(PyArrayObject *ap1, PyArrayObject *ap2, PyArrayObject* out,
-                  int nd, npy_intp dimensions[], int typenum)
+static PyMicArrayObject *
+new_array_for_sum(PyMicArrayObject *ap1, PyMicArrayObject *ap2, PyMicArrayObject* out,
+                  int nd, npy_intp dimensions[], int typenum, PyMicArrayObject **result)
 {
-    //TODO: implement
-    return NULL;
+    PyMicArrayObject *out_buf;
+    PyTypeObject *subtype;
+    double prior1, prior2;
+    int device = PyMicArray_DEVICE(ap1);
+    /*
+     * Need to choose an output array that can hold a sum
+     * -- use priority to determine which subtype.
+     */
+    if (Py_TYPE(ap2) != Py_TYPE(ap1)) {
+        prior2 = PyArray_GetPriority((PyObject *)ap2, 0.0);
+        prior1 = PyArray_GetPriority((PyObject *)ap1, 0.0);
+        subtype = (prior2 > prior1 ? Py_TYPE(ap2) : Py_TYPE(ap1));
+    }
+    else {
+        prior1 = prior2 = 0.0;
+        subtype = Py_TYPE(ap1);
+    }
+    if (out) {
+        int d;
+
+        /* verify that out is usable */
+        if (Py_TYPE(out) != subtype ||
+            PyMicArray_NDIM(out) != nd ||
+            PyMicArray_TYPE(out) != typenum ||
+            !PyMicArray_ISCARRAY(out)) {
+            PyErr_SetString(PyExc_ValueError,
+                "output array is not acceptable "
+                "(must have the right type, nr dimensions, and be a C-Array)");
+            return 0;
+        }
+        for (d = 0; d < nd; ++d) {
+            if (dimensions[d] != PyMicArray_DIM(out, d)) {
+                PyErr_SetString(PyExc_ValueError,
+                    "output array has wrong dimensions");
+                return 0;
+            }
+        }
+
+        /* check for memory overlap */
+        if (!(solve_may_share_memory(out, ap1, 1) == 0 &&
+              solve_may_share_memory(out, ap2, 1) == 0)) {
+            /* allocate temporary output array */
+            out_buf = (PyMicArrayObject *)PyMicArray_NewLikeArray(device, (PyArrayObject *)out,
+                                                            NPY_CORDER, NULL, 0);
+            if (out_buf == NULL) {
+                return NULL;
+            }
+
+            /* set copy-back */
+            Py_INCREF(out);
+            if (PyMicArray_SetUpdateIfCopyBase(out_buf, out) < 0) {
+                Py_DECREF(out);
+                Py_DECREF(out_buf);
+                return NULL;
+            }
+        }
+        else {
+            Py_INCREF(out);
+            out_buf = out;
+        }
+
+        if (result) {
+            Py_INCREF(out);
+            *result = out;
+        }
+
+        return out_buf;
+    }
+
+    out_buf = (PyMicArrayObject *)PyMicArray_New(device, subtype, nd, dimensions,
+                                           typenum, NULL, NULL, 0, 0,
+                                           (PyObject *)
+                                           (prior2 > prior1 ? ap2 : ap1));
+
+    if (out_buf != NULL && result) {
+        Py_INCREF(out_buf);
+        *result = out_buf;
+    }
+
+    return out_buf;
 }
 
 /* Could perhaps be redone to not make contiguous arrays */
 
+/*NUMPY_API
+ * Numeric.matrixproduct2(a,v,out)
+ * just like inner product but does the swapaxes stuff on the fly
+ */
+NPY_NO_EXPORT PyObject *
+PyMicArray_MatrixProduct2(PyObject *op1, PyObject *op2, PyMicArrayObject* out)
+{
+    PyMicArrayObject *ap1, *ap2, *out_buf = NULL, *result = NULL;
+    PyArrayIterObject *it1, *it2;
+    npy_intp i, j, l;
+    int typenum, nd, axis, matchDim, device;
+    npy_intp is1, is2, os;
+    char *op;
+    npy_intp dimensions[NPY_MAXDIMS];
+    PyMicArray_DotFunc *dot;
+    PyArray_Descr *typec = NULL;
+    NPY_BEGIN_THREADS_DEF;
+
+    device = get_common_device2(op1, op2);
+
+    typenum = PyMicArray_ObjectType(op1, 0);
+    typenum = PyMicArray_ObjectType(op2, typenum);
+    typec = PyArray_DescrFromType(typenum);
+    if (typec == NULL) {
+        PyErr_SetString(PyExc_TypeError, "Cannot find a common data type.");
+        return NULL;
+    }
+
+    Py_INCREF(typec);
+    ap1 = (PyMicArrayObject *)PyMicArray_FromAny(device, op1, typec, 0, 0,
+                                        NPY_ARRAY_ALIGNED, NULL);
+    if (ap1 == NULL) {
+        Py_DECREF(typec);
+        return NULL;
+    }
+    ap2 = (PyMicArrayObject *)PyMicArray_FromAny(device, op2, typec, 0, 0,
+                                        NPY_ARRAY_ALIGNED, NULL);
+    if (ap2 == NULL) {
+        Py_DECREF(ap1);
+        return NULL;
+    }
+
+    if (PyMicArray_NDIM(ap1) <= 2 && PyMicArray_NDIM(ap2) <= 2 &&
+            (NPY_DOUBLE == typenum || NPY_CDOUBLE == typenum ||
+             NPY_FLOAT == typenum || NPY_CFLOAT == typenum)) {
+        return cblas_matrixproduct(typenum, ap1, ap2, out);
+    }
+
+    if (PyMicArray_NDIM(ap1) == 0 || PyMicArray_NDIM(ap2) == 0) {
+        //TODO: error may occur here
+        result = (PyMicArray_NDIM(ap1) == 0 ? ap1 : ap2);
+        result = (PyMicArrayObject *)Py_TYPE(result)->tp_as_number->nb_multiply(
+                                        (PyObject *)ap1, (PyObject *)ap2);
+        Py_DECREF(ap1);
+        Py_DECREF(ap2);
+        return (PyObject *)result;
+    }
+    l = PyMicArray_DIMS(ap1)[PyMicArray_NDIM(ap1) - 1];
+    if (PyMicArray_NDIM(ap2) > 1) {
+        matchDim = PyMicArray_NDIM(ap2) - 2;
+    }
+    else {
+        matchDim = 0;
+    }
+    if (PyMicArray_DIMS(ap2)[matchDim] != l) {
+        dot_alignment_error(ap1, PyMicArray_NDIM(ap1) - 1, ap2, matchDim);
+        goto fail;
+    }
+    nd = PyMicArray_NDIM(ap1) + PyMicArray_NDIM(ap2) - 2;
+    if (nd > NPY_MAXDIMS) {
+        PyErr_SetString(PyExc_ValueError, "dot: too many dimensions in result");
+        goto fail;
+    }
+    j = 0;
+    for (i = 0; i < PyMicArray_NDIM(ap1) - 1; i++) {
+        dimensions[j++] = PyMicArray_DIMS(ap1)[i];
+    }
+    for (i = 0; i < PyMicArray_NDIM(ap2) - 2; i++) {
+        dimensions[j++] = PyMicArray_DIMS(ap2)[i];
+    }
+    if(PyMicArray_NDIM(ap2) > 1) {
+        dimensions[j++] = PyMicArray_DIMS(ap2)[PyMicArray_NDIM(ap2)-1];
+    }
+
+    is1 = PyMicArray_STRIDES(ap1)[PyMicArray_NDIM(ap1)-1];
+    is2 = PyMicArray_STRIDES(ap2)[matchDim];
+    /* Choose which subtype to return */
+    out_buf = new_array_for_sum(ap1, ap2, out, nd, dimensions, typenum, &result);
+    if (out_buf == NULL) {
+        goto fail;
+    }
+    /* Ensure that multiarray.dot(<Nx0>,<0xM>) -> zeros((N,M)) */
+    if (PyMicArray_SIZE(ap1) == 0 && PyMicArray_SIZE(ap2) == 0) {
+        target_memset(PyMicArray_DATA(out_buf), 0, PyMicArray_NBYTES(out_buf), 
+                      PyMicArray_DEVICE(out_buf));
+    }
+
+    dot = PyMicArray_GetArrFuncs(typenum)->dotfunc;
+    if (dot == NULL) {
+        PyErr_SetString(PyExc_ValueError,
+                        "dot not available for this type");
+        goto fail;
+    }
+
+    op = PyMicArray_DATA(out_buf);
+    os = PyMicArray_DESCR(out_buf)->elsize;
+    axis = PyMicArray_NDIM(ap1)-1;
+    it1 = (PyArrayIterObject *)
+        PyArray_IterAllButAxis((PyObject *)ap1, &axis);
+    if (it1 == NULL) {
+        goto fail;
+    }
+    it2 = (PyArrayIterObject *)
+        PyArray_IterAllButAxis((PyObject *)ap2, &matchDim);
+    if (it2 == NULL) {
+        Py_DECREF(it1);
+        goto fail;
+    }
+    NPY_BEGIN_THREADS_DESCR(PyMicArray_DESCR(ap2));
+    while (it1->index < it1->size) {
+        while (it2->index < it2->size) {
+            dot(it1->dataptr, is1, it2->dataptr, is2, op, l, device);
+            op += os;
+            PyArray_ITER_NEXT(it2);
+        }
+        PyArray_ITER_NEXT(it1);
+        PyArray_ITER_RESET(it2);
+    }
+    NPY_END_THREADS_DESCR(PyMicArray_DESCR(ap2));
+    Py_DECREF(it1);
+    Py_DECREF(it2);
+    if (PyErr_Occurred()) {
+        /* only for OBJECT arrays */
+        goto fail;
+    }
+    Py_DECREF(ap1);
+    Py_DECREF(ap2);
+
+    /* Trigger possible copy-back into `result` */
+    Py_DECREF(out_buf);
+
+    return (PyObject *)result;
+
+fail:
+    Py_XDECREF(ap1);
+    Py_XDECREF(ap2);
+    Py_XDECREF(out_buf);
+    Py_XDECREF(result);
+    return NULL;
+}
 
 /*NUMPY_API
  * Copy and Transpose

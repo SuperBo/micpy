@@ -19,6 +19,7 @@
 #pragma omp end declare target
 
 #define _MICARRAYMODULE
+#include "mpyndarraytypes.h"
 #include "arraytypes.h"
 #include "common.h"
 #include "mpymem_overlap.h"
@@ -477,7 +478,7 @@ cblas_matrixproduct(int typenum, PyMicArrayObject *ap1, PyMicArrayObject *ap2,
             /* set copy-back */
             /* TODO: check whether SetUpdateIfCopyBase work normally */
             Py_INCREF(out);
-            if (PyArray_SetUpdateIfCopyBase((PyArrayObject *)out_buf, (PyArrayObject *)out) < 0) {
+            if (PyMicArray_SetUpdateIfCopyBase(out_buf, out) < 0) {
                 Py_DECREF(out);
                 goto fail;
             }
@@ -503,9 +504,7 @@ cblas_matrixproduct(int typenum, PyMicArrayObject *ap1, PyMicArrayObject *ap2,
     }
 
     numbytes = PyMicArray_NBYTES(out_buf);
-    tmpdata = PyMicArray_DATA(out_buf);
-    #pragma omp target device(device) map(to: tmpdata, numbytes)
-    memset(tmpdata, 0, numbytes);
+    target_memset(PyMicArray_DATA(out_buf), 0, numbytes, device);
     if (numbytes == 0 || l == 0) {
             Py_DECREF(ap1);
             Py_DECREF(ap2);
@@ -515,7 +514,7 @@ cblas_matrixproduct(int typenum, PyMicArrayObject *ap1, PyMicArrayObject *ap2,
     /* Prepare for offloading */
     void *ap1data = PyMicArray_DATA(ap1);
     void *ap2data = PyMicArray_DATA(ap2);
-    void *outdata = PyMicArray_DATA(out);
+    void *outdata = PyMicArray_DATA(out_buf);
     int ap1ndim = PyMicArray_NDIM(ap1);
     int ap2ndim = PyMicArray_NDIM(ap2);
     int outndim = PyMicArray_NDIM(out_buf);
