@@ -487,7 +487,7 @@ PyMicArray_New(int device, PyTypeObject *subtype, int nd, npy_intp *dims, int ty
  */
 NPY_NO_EXPORT PyObject *
 PyMicArray_FromAny(int device, PyObject *op, PyArray_Descr *newtype, int min_depth,
-                int max_depth, int flags, PyObject *context)
+                   int max_depth, int flags, PyObject *context)
 {
     /*
      * This is the main code to make a MicPy array from a Python
@@ -495,19 +495,20 @@ PyMicArray_FromAny(int device, PyObject *op, PyArray_Descr *newtype, int min_dep
      */
 
     PyArrayObject *arr;
+    PyObject *ret;
 
     if (PyArray_Check(op) || PyMicArray_Check(op)) {
-        arr = (PyArrayObject *) op;
-    }
-    else {
-        arr = (PyArrayObject *) PyArray_FromAny(op, newtype, min_depth, max_depth,
-                                                flags, context);
+        return PyMicArray_FromArray((PyArrayObject *)op, newtype, device, flags);
     }
 
-    if (arr == NULL)
+    arr = (PyArrayObject *) PyArray_FromAny(op, newtype, min_depth, max_depth,
+                                            flags, context);
+    if (arr == NULL) {
         return NULL;
-
-    return PyMicArray_FromArray(arr, newtype, device, flags);
+    }
+    ret = PyMicArray_FromArray(arr, newtype, device, flags);
+    Py_DECREF(arr);
+    return ret;
 }
 
 /*NUMPY_API

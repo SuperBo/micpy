@@ -276,7 +276,7 @@ PyMicArray_MatrixProduct2(PyObject *op1, PyObject *op2, PyMicArrayObject* out)
     }
     /* Ensure that multiarray.dot(<Nx0>,<0xM>) -> zeros((N,M)) */
     if (PyMicArray_SIZE(ap1) == 0 && PyMicArray_SIZE(ap2) == 0) {
-        target_memset(PyMicArray_DATA(out_buf), 0, PyMicArray_NBYTES(out_buf), 
+        target_memset(PyMicArray_DATA(out_buf), 0, PyMicArray_NBYTES(out_buf),
                       PyMicArray_DEVICE(out_buf));
     }
 
