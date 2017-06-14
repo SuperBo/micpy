@@ -35,7 +35,7 @@
         (void *) &PyMicArray_Flatten,\
         (void *) &PyMicArray_RemoveAxesInPlace,\
         (void *) &PyMicArray_Return,\
-        (void *) &PyMicArray_Scalar,\
+        (void *) &PyMicArray_ToScalar,\
         (void *) &PyMicArray_FillWithScalar,\
         (void *) &PyMicArray_FailUnlessWriteable,\
         (void *) &PyMicArray_GetNumDevices,\

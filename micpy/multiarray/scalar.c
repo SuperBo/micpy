@@ -8,8 +8,10 @@
 #include <numpy/arrayobject.h>
 #include <numpy/arrayscalars.h>
 
+#define _MICARRAYMODULE
 #include "arrayobject.h"
 #include "scalar.h"
+#include <offload.h>
 
 NPY_NO_EXPORT void *
 scalar_value(PyObject *scalar, PyArray_Descr *descr)
@@ -145,12 +147,22 @@ scalar_value(PyObject *scalar, PyArray_Descr *descr)
   Get scalar-equivalent to a region of memory described by a descriptor.
 */
 NPY_NO_EXPORT PyObject *
-PyMicArray_Scalar(void *data, PyArray_Descr *descr, PyObject *base)
+PyMicArray_ToScalar(void *data, PyMicArrayObject *obj)
 {
-    //TODO(superbo): implement
-    return NULL;
-}
+    PyArray_Descr *descr = PyMicArray_DESCR(obj);
+    int elsize = descr->elsize;
 
+    /* Allocate host data for transfer */
+    char host_data[elsize];
+
+    /* Transfer scalar from device to host */
+    if (omp_target_memcpy(host_data, data, elsize, 0, 0,
+                omp_get_initial_device(), PyMicArray_DEVICE(obj)) != 0) {
+        return NULL;
+    }
+
+    return PyArray_Scalar(host_data, descr, NULL);
+}
 
  /*
  * Return either an array or the appropriate Python object if the array
@@ -168,7 +180,7 @@ PyMicArray_Return(PyMicArrayObject *mp)
         Py_XDECREF(mp);
         return NULL;
     }
-    if (!PyArray_Check(mp)) {
+    if (!PyMicArray_Check(mp)) {
         return (PyObject *)mp;
     }
     if (PyMicArray_NDIM(mp) == 0) {

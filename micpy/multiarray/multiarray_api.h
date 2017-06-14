@@ -146,8 +146,8 @@ static int _import_pymicarray() {
 #define PyMicArray_Return \
     (*(PyObject * (*)(PyMicArrayObject *)) \
      PyMicArray_API[24])
-#define PyMicArray_Scalar \
-    (*(PyObject * (*)(void *, PyArray_Descr *, PyObject *)) \
+#define PyMicArray_ToScalar \
+    (*(PyObject * (*)(void *, PyMicArrayObject *) \
      PyMicArray_API[25])
 #define PyMicArray_FillWithScalar \
     (*(int (*)(PyMicArrayObject *, PyObject *)) \
