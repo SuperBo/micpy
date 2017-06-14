@@ -84,7 +84,6 @@ PyMicArray_ObjectType(PyObject *op, int minimum_type)
     }
 
     Py_DECREF(min_dtype);
-    Py_DECREF(dtype);
     Py_XDECREF(res_dtype);
 
     return ret;
