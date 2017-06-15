@@ -18,6 +18,7 @@
 #define _MICARRAYMODULE
 #include <mpymath/halffloat.h>
 #include "arrayobject.h"
+#include "creators.h"
 //#include "npy_config.h"
 //#include "npy_sort.h"
 #include "common.h"
@@ -409,6 +410,291 @@ static void
  **                            COPYSWAPN                                    **
  *****************************************************************************
  */
+
+
+static MPY_TARGET_MIC NPY_INLINE void
+_basic_copyn(void *dst, npy_intp dstride, void *src, npy_intp sstride,
+             npy_intp n, int elsize) {
+    if (src == NULL) {
+        return;
+    }
+    if (sstride == elsize && dstride == elsize) {
+        memcpy(dst, src, n*elsize);
+    }
+    else {
+        _unaligned_strided_byte_copy(dst, dstride, src, sstride,
+                n, elsize);
+    }
+}
+
+static MPY_TARGET_MIC NPY_INLINE void
+_basic_copy(void *dst, void *src, int elsize) {
+    if (src == NULL) {
+        return;
+    }
+    memcpy(dst, src, elsize);
+}
+
+
+/**begin repeat
+ *
+ * #fname = SHORT, USHORT, INT, UINT,
+ *          LONG, ULONG, LONGLONG, ULONGLONG,
+ *          HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *          DATETIME, TIMEDELTA#
+ * #fsize = SHORT, SHORT, INT, INT,
+ *          LONG, LONG, LONGLONG, LONGLONG,
+ *          HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *          DATETIME, TIMEDELTA#
+ * #type = npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_half, npy_float, npy_double, npy_longdouble,
+ *         npy_datetime, npy_timedelta#
+ */
+static void
+@fname@_copyswapn(void *dst, npy_intp dstride, void *src, npy_intp sstride,
+                   npy_intp n, int swap, int device)
+{
+    #pragma omp target device(device) map(to: dst, dstride, src, sstride, \
+                                              n, swap)
+    {
+        /* copy first if needed */
+        _basic_copyn(dst, dstride, src, sstride, n, sizeof(@type@));
+        if (swap) {
+            _strided_byte_swap(dst, dstride, n, sizeof(@type@));
+        }
+    }
+}
+
+static void
+@fname@_copyswap(void *dst, void *src, int swap, int device)
+{
+    #pragma omp target device(device) map(to: dst, src, swap)
+    {
+        /* copy first if needed */
+        _basic_copy(dst, src, sizeof(@type@));
+
+        if (swap) {
+            char *a, *b, c;
+
+            a = (char *)dst;
+#if NPY_SIZEOF_@fsize@ == 2
+            b = a + 1;
+            c = *a; *a++ = *b; *b = c;
+#elif NPY_SIZEOF_@fsize@ == 4
+            b = a + 3;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 8
+            b = a + 7;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 10
+            b = a + 9;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 12
+            b = a + 11;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 16
+            b = a + 15;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#else
+            {
+                int i, nn;
+
+                b = a + (NPY_SIZEOF_@fsize@-1);
+                nn = NPY_SIZEOF_@fsize@ / 2;
+                for (i = 0; i < nn; i++) {
+                    c = *a;
+                    *a++ = *b;
+                    *b-- = c;
+                }
+            }
+#endif
+        }
+    }
+}
+
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #fname = BOOL,
+ *          BYTE, UBYTE#
+ * #type = npy_bool,
+ *         npy_byte, npy_ubyte#
+ */
+static void
+@fname@_copyswapn(void *dst, npy_intp dstride, void *src, npy_intp sstride,
+                  npy_intp n, int NPY_UNUSED(swap), int device)
+{
+    #pragma omp target device(device) map(to: dst, dstride,\
+                                              src, sstride, n)
+    /* copy first if needed */
+    _basic_copyn(dst, dstride, src, sstride, n, sizeof(@type@));
+    /* ignore swap */
+}
+
+static void
+@fname@_copyswap(void *dst, void *src, int NPY_UNUSED(swap),
+                 int device)
+{
+    #pragma omp target device(device) map(to: dst, src)
+    /* copy first if needed */
+    _basic_copy(dst, src, sizeof(@type@));
+    /* ignore swap */
+}
+
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #fname = CFLOAT, CDOUBLE, CLONGDOUBLE#
+ * #fsize = FLOAT, DOUBLE, LONGDOUBLE#
+ * #type = npy_cfloat, npy_cdouble, npy_clongdouble#
+*/
+static void
+@fname@_copyswapn(void *dst, npy_intp dstride, void *src, npy_intp sstride,
+        npy_intp n, int swap, int device)
+{
+    #pragma omp target device(device) map(to: dst, dstride, src, sstride,\
+                                              n, swap)
+    {
+        /* copy first if needed */
+        _basic_copyn(dst, dstride, src, sstride, n, sizeof(@type@));
+
+        if (swap) {
+            _strided_byte_swap(dst, dstride, n, NPY_SIZEOF_@fsize@);
+            _strided_byte_swap(((char *)dst + NPY_SIZEOF_@fsize@), dstride,
+                    n, NPY_SIZEOF_@fsize@);
+        }
+    }
+}
+
+static void
+@fname@_copyswap(void *dst, void *src, int swap, int device)
+{
+    #pragma omp target device(device) map(to: dst, src, swap)
+    {
+        /* copy first if needed */
+        _basic_copy(dst, src, sizeof(@type@));
+
+        if (swap) {
+            char *a, *b, c;
+            a = (char *)dst;
+#if NPY_SIZEOF_@fsize@ == 4
+            b = a + 3;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+            a += 2;
+            b = a + 3;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 8
+            b = a + 7;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+            a += 4;
+            b = a + 7;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 10
+            b = a + 9;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+            a += 5;
+            b = a + 9;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 12
+            b = a + 11;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+            a += 6;
+            b = a + 11;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 16
+            b = a + 15;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+            a += 8;
+            b = a + 15;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#else
+            {
+                int i, nn;
+
+                b = a + (NPY_SIZEOF_@fsize@ - 1);
+                nn = NPY_SIZEOF_@fsize@ / 2;
+                for (i = 0; i < nn; i++) {
+                    c = *a;
+                    *a++ = *b;
+                    *b-- = c;
+                }
+                a += nn;
+                b = a + (NPY_SIZEOF_@fsize@ - 1);
+                for (i = 0; i < nn; i++) {
+                    c = *a;
+                    *a++ = *b;
+                    *b-- = c;
+                }
+            }
+#endif
+        }
+    }
+}
+
+/**end repeat**/
 
 
 /*
@@ -1827,8 +2113,8 @@ static PyMicArray_ArrFuncs _Py@NAME@_MicArrFuncs = {
     },
     NULL, //TODO: @from@_getitem,
     NULL, //TODO: @from@_setitem,
-    NULL, //TODO: (PyMicArray_CopySwapNFunc*)@from@_copyswapn,
-    NULL, //TODO: (PyMicArray_CopySwapFunc*)@from@_copyswap,
+    (PyMicArray_CopySwapNFunc*)@from@_copyswapn,
+    (PyMicArray_CopySwapFunc*)@from@_copyswap,
     NULL, //TODO: (PyMicArray_CompareFunc*)@from@_compare,
     (PyMicArray_ArgFunc*)@from@_argmax,
     (PyMicArray_DotFunc*)@from@_dot,

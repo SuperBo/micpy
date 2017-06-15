@@ -4,6 +4,7 @@
 #include <offload.h>
 
 #include "arrayobject.h"
+#include "mpy_common.h"
 
 #ifndef NMAXDEVICES
 #define NMAXDEVICES 2
@@ -66,7 +67,7 @@ get_common_device(PyObject **ops, int nop);
  * return true if pointer is aligned to 'alignment'
  * borrow from numpy
  */
-static NPY_INLINE int
+static NPY_INLINE MPY_TARGET_MIC int
 mpy_is_aligned(const void * p, const npy_uintp alignment)
 {
     /*

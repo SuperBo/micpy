@@ -1,6 +1,15 @@
 #ifndef _MPY_ARRAY_CTORS_H_
 #define _MPY_ARRAY_CTORS_H_
 
+#include "mpy_common.h"
+
+NPY_NO_EXPORT MPY_TARGET_MIC void
+_unaligned_strided_byte_copy(char *dst, npy_intp outstrides, char *src,
+                             npy_intp instrides, npy_intp N, int elsize);
+
+NPY_NO_EXPORT MPY_TARGET_MIC void
+_strided_byte_swap(void *p, npy_intp stride, npy_intp n, int size);
+
 NPY_NO_EXPORT PyObject *
 PyMicArray_NewFromDescr(int device, PyTypeObject *subtype,
                      PyArray_Descr *descr, int nd,

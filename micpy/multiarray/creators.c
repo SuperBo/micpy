@@ -13,6 +13,7 @@
 
 #define _MICARRAYMODULE
 #include "common.h"
+#include "mpy_common.h"
 #include "arrayobject.h"
 #include "multiarraymodule.h"
 #include "creators.h"
@@ -20,6 +21,7 @@
 #include "array_assign.h"
 //#include "numpymemoryview.h"
 //#include "lowlevel_strided_loops.h"
+#include "mpy_lowlevel_strided_loops.h"
 #include "methods.h"
 #include "alloc.h"
 
@@ -88,6 +90,100 @@ _update_descr_and_dimensions(PyArray_Descr **des, npy_intp *newdims,
     Py_INCREF(*des);
     Py_DECREF(old);
     return newnd;
+}
+
+NPY_NO_EXPORT MPY_TARGET_MIC void
+_unaligned_strided_byte_copy(char *dst, npy_intp outstrides, char *src,
+                             npy_intp instrides, npy_intp N, int elsize)
+{
+    npy_intp i;
+    char *tout = dst;
+    char *tin = src;
+
+#define _COPY_N_SIZE(size) \
+    for(i=0; i<N; i++) { \
+        memcpy(tout, tin, size); \
+        tin += instrides; \
+        tout += outstrides; \
+    } \
+    return
+
+    switch(elsize) {
+    case 8:
+        _COPY_N_SIZE(8);
+    case 4:
+        _COPY_N_SIZE(4);
+    case 1:
+        _COPY_N_SIZE(1);
+    case 2:
+        _COPY_N_SIZE(2);
+    case 16:
+        _COPY_N_SIZE(16);
+    default:
+        _COPY_N_SIZE(elsize);
+    }
+#undef _COPY_N_SIZE
+
+}
+
+NPY_NO_EXPORT MPY_TARGET_MIC void
+_strided_byte_swap(void *p, npy_intp stride, npy_intp n, int size)
+{
+    char *a, *b, c = 0;
+    int j, m;
+
+    switch(size) {
+    case 1: /* no byteswap necessary */
+        break;
+    case 4:
+        if (mpy_is_aligned((void*)((npy_intp)p | stride), sizeof(npy_uint32))) {
+            for (a = (char*)p; n > 0; n--, a += stride) {
+                npy_uint32 * a_ = (npy_uint32 *)a;
+                *a_ = mpy_bswap4(*a_);
+            }
+        }
+        else {
+            for (a = (char*)p; n > 0; n--, a += stride) {
+                mpy_bswap4_unaligned(a);
+            }
+        }
+        break;
+    case 8:
+        if (mpy_is_aligned((void*)((npy_intp)p | stride), sizeof(npy_uint64))) {
+            for (a = (char*)p; n > 0; n--, a += stride) {
+                npy_uint64 * a_ = (npy_uint64 *)a;
+                *a_ = mpy_bswap8(*a_);
+            }
+        }
+        else {
+            for (a = (char*)p; n > 0; n--, a += stride) {
+                mpy_bswap8_unaligned(a);
+            }
+        }
+        break;
+    case 2:
+        if (mpy_is_aligned((void*)((npy_intp)p | stride), sizeof(npy_uint16))) {
+            for (a = (char*)p; n > 0; n--, a += stride) {
+                npy_uint16 * a_ = (npy_uint16 *)a;
+                *a_ = mpy_bswap2(*a_);
+            }
+        }
+        else {
+            for (a = (char*)p; n > 0; n--, a += stride) {
+                mpy_bswap2_unaligned(a);
+            }
+        }
+        break;
+    default:
+        m = size/2;
+        for (a = (char *)p; n > 0; n--, a += stride - m) {
+            b = a + (size - 1);
+            for (j = 0; j < m; j++) {
+                c=*a; *a++ = *b; *b-- = c;
+            }
+        }
+        break;
+    }
 }
 
 /*

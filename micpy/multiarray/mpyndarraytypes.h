@@ -49,9 +49,9 @@ typedef PyObject * (PyMicArray_GetItemFunc) (void *, void *);
 typedef int (PyMicArray_SetItemFunc)(PyObject *, void *, void *);
 
 typedef void (PyMicArray_CopySwapNFunc)(void *, npy_intp, void *, npy_intp,
-                                     npy_intp, int, void *);
+                                     npy_intp, int, int);
 
-typedef void (PyMicArray_CopySwapFunc)(void *, void *, int, void *);
+typedef void (PyMicArray_CopySwapFunc)(void *, void *, int, int);
 
 typedef npy_bool (PyMicArray_NonzeroFunc)(void *, void *);
 
