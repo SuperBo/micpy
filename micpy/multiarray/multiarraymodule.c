@@ -191,13 +191,17 @@ NPY_NO_EXPORT PyObject *
 PyMicArray_MatrixProduct2(PyObject *op1, PyObject *op2, PyMicArrayObject* out)
 {
     PyMicArrayObject *ap1, *ap2, *out_buf = NULL, *result = NULL;
-    PyArrayIterObject *it1, *it2;
-    npy_intp i, j, l;
-    int typenum, nd, axis, matchDim, device;
-    npy_intp is1, is2, os;
-    char *op;
+    MpyIter *it1, *it2;
+    MpyIter_IterNextFunc *it1_next, *it2_next;
+    char **it1_dataptr, **it2_dataptr;
+    npy_uint32 iterflags;
+    npy_intp i, j, l, itersize;
+    int typenum, nd, axis, matchDim, device, usecache = 0;
+    npy_intp is1, is2, os, elesize;
+    char *op, *cache;
     npy_intp dimensions[NPY_MAXDIMS];
     PyMicArray_DotFunc *dot;
+    PyMicArray_CopySwapNFunc *copyn;
     PyArray_Descr *typec = NULL;
     NPY_BEGIN_THREADS_DEF;
 
@@ -287,33 +291,87 @@ PyMicArray_MatrixProduct2(PyObject *op1, PyObject *op2, PyMicArrayObject* out)
         goto fail;
     }
 
+    /* Switch to use nditer */
+    elesize = PyMicArray_DESCR(out_buf)->elsize;
     op = PyMicArray_DATA(out_buf);
     os = PyMicArray_DESCR(out_buf)->elsize;
+    iterflags = NPY_ITER_READONLY |  NPY_ITER_MULTI_INDEX;
     axis = PyMicArray_NDIM(ap1)-1;
-    it1 = (PyArrayIterObject *)
-        PyArray_IterAllButAxis((PyObject *)ap1, &axis);
+    it1 = MpyIter_New(ap1, iterflags, NPY_KEEPORDER, NPY_NO_CASTING, NULL);
     if (it1 == NULL) {
         goto fail;
     }
-    it2 = (PyArrayIterObject *)
-        PyArray_IterAllButAxis((PyObject *)ap2, &matchDim);
-    if (it2 == NULL) {
-        Py_DECREF(it1);
+    if (MpyIter_RemoveAxis(it1, axis) != NPY_SUCCEED) {
+        MpyIter_Deallocate(it1);
         goto fail;
     }
-    NPY_BEGIN_THREADS_DESCR(PyMicArray_DESCR(ap2));
-    while (it1->index < it1->size) {
-        while (it2->index < it2->size) {
-            dot(it1->dataptr, is1, it2->dataptr, is2, op, l, device);
-            op += os;
-            PyArray_ITER_NEXT(it2);
+    it1_next = MpyIter_GetIterNext(it1, NULL);
+    if (it1_next == NULL) {
+        MpyIter_Deallocate(it1);
+        goto fail;
+    }
+    it2 = MpyIter_New(ap2, iterflags, NPY_KEEPORDER, NPY_NO_CASTING, NULL);
+    if (it2 == NULL) {
+        MpyIter_Deallocate(it1);
+        goto fail;
+    }
+    if (MpyIter_RemoveAxis(it2, matchDim) != NPY_SUCCEED) {
+        MpyIter_Deallocate(it1);
+        MpyIter_Deallocate(it2);
+        goto fail;
+    }
+    it2_next = MpyIter_GetIterNext(it2, NULL);
+    if (it2_next == NULL) {
+        MpyIter_Deallocate(it1);
+        MpyIter_Deallocate(it2);
+        goto fail;
+    }
+
+    itersize = MpyIter_GetIterSize(it1);
+    it1_dataptr = MpyIter_GetDataPtrArray(it1);
+    it2_dataptr = MpyIter_GetDataPtrArray(it2);
+
+    /* Use cache if itersize larger than 1 */
+    /* TODO: can we usecache for ndim > 2 ? */
+    if (nd == 2 && itersize > 1 && is2 != elesize) {
+        copyn = PyMicArray_GetArrFuncs(typenum)->copyswapn;
+        if (copyn != NULL) {
+            usecache = 1;
+            cache = (char *) omp_target_alloc(elesize*l, device);
         }
-        PyArray_ITER_NEXT(it1);
-        PyArray_ITER_RESET(it2);
+    }
+
+    NPY_BEGIN_THREADS_DESCR(PyMicArray_DESCR(ap2));
+    if (usecache) {
+        char *op0 = op;
+        npy_intp k = PyMicArray_DIM(out_buf, 1);
+        do {
+            copyn(cache, elesize, *it2_dataptr, is2, l, 0, device);
+            do {
+                dot(*it1_dataptr, is1, cache, elesize, op, l, device);
+                op += os*k;
+            } while (it1_next(it1));
+            op0 += os;
+            op = op0;
+            MpyIter_Reset(it1, NULL);
+        } while (it2_next(it2));
+    }
+    else {
+        do {
+            do {
+                dot(*it1_dataptr, is1, *it2_dataptr, is2, op, l, device);
+                op += os;
+            } while (it2_next(it2));
+            MpyIter_Reset(it2, NULL);
+        } while (it1_next(it1));
     }
     NPY_END_THREADS_DESCR(PyMicArray_DESCR(ap2));
-    Py_DECREF(it1);
-    Py_DECREF(it2);
+    MpyIter_Deallocate(it1);
+    MpyIter_Deallocate(it2);
+    if (usecache) {
+        omp_target_free(cache, device);
+        cache = NULL;
+    }
     if (PyErr_Occurred()) {
         /* only for OBJECT arrays */
         goto fail;
@@ -506,6 +564,29 @@ array_count_nonzero(PyObject *NPY_UNUSED(self), PyObject *args, PyObject *kwds)
     return NULL;
 }
 
+static PyObject *
+array_matrixproduct(PyObject *NPY_UNUSED(dummy), PyObject *args, PyObject* kwds)
+{
+    PyObject *v, *a, *o = NULL;
+    PyMicArrayObject *ret;
+    char* kwlist[] = {"a", "b", "out", NULL };
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO|O:matrixproduct",
+                                     kwlist, &a, &v, &o)) {
+        return NULL;
+    }
+    if (o != NULL) {
+        if (o == Py_None) {
+            o = NULL;
+        }
+        else if (!PyMicArray_Check(o)) {
+            PyErr_SetString(PyExc_TypeError, "'out' must be an array");
+            return NULL;
+        }
+    }
+    ret = (PyMicArrayObject *)PyMicArray_MatrixProduct2(a, v, (PyMicArrayObject *)o);
+    return PyMicArray_Return(ret);
+}
 
 static PyObject *
 array_fastCopyAndTranspose(PyObject *NPY_UNUSED(dummy), PyObject *args)
@@ -661,11 +742,11 @@ static struct PyMethodDef array_module_methods[] = {
         METH_VARARGS|METH_KEYWORDS, NULL},
     {"inner",
         (PyCFunction)array_innerproduct,
-        METH_VARARGS, NULL},
+        METH_VARARGS, NULL},*/
     {"dot",
         (PyCFunction)array_matrixproduct,
         METH_VARARGS | METH_KEYWORDS, NULL},
-    {"vdot",
+    /*{"vdot",
         (PyCFunction)array_vdot,
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"matmul",
