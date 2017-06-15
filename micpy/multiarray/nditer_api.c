@@ -1063,8 +1063,25 @@ MpyIter_CreateCompatibleStrides(MpyIter *iter,
  *
  * This function may be safely called without holding the Python GIL.
  */
-NPY_NO_EXPORT npy_intp *
+NPY_NO_EXPORT char **
 MpyIter_GetDataPtrArray(MpyIter *iter)
+{
+    npy_uint32 itflags = NIT_ITFLAGS(iter);
+    /*int ndim = NIT_NDIM(iter);*/
+    int nop = NIT_NOP(iter);
+
+    if (itflags&NPY_ITFLAG_BUFFER) {
+        NpyIter_BufferData *bufferdata = NIT_BUFFERDATA(iter);
+        return NBF_PTRS(bufferdata);
+    }
+    else {
+        NpyIter_AxisData *axisdata = NIT_AXISDATA(iter);
+        return NAD_PTRS(axisdata);
+    }
+}
+
+NPY_NO_EXPORT npy_intp *
+MpyIter_GetOffDataPtrArray(MpyIter *iter)
 {
     npy_uint32 itflags = NIT_ITFLAGS(iter);
     /*int ndim = NIT_NDIM(iter);*/
@@ -1093,14 +1110,25 @@ MpyIter_GetDataPtrArray(MpyIter *iter)
  *
  * This function may be safely called without holding the Python GIL.
  */
-NPY_NO_EXPORT npy_intp *
+NPY_NO_EXPORT char **
 MpyIter_GetInitialDataPtrArray(MpyIter *iter)
 {
     /*npy_uint32 itflags = NIT_ITFLAGS(iter);*/
     /*int ndim = NIT_NDIM(iter);*/
     int nop = NIT_NOP(iter);
 
-    return (npy_intp *)NIT_RESETDATAPTR(iter);
+    return NIT_RESETDATAPTR(iter);
+}
+
+NPY_NO_EXPORT npy_intp *
+MpyIter_GetOffInitialDataPtrArray(MpyIter *iter)
+{
+    /*npy_uint32 itflags = NIT_ITFLAGS(iter);*/
+    /*int ndim = NIT_NDIM(iter);*/
+    int nop = NIT_NOP(iter);
+    MpyIter *offiter = (MpyIter *) NIT_OFFITER(iter);
+
+    return (npy_intp *)NIT_RESETDATAPTR(offiter);
 }
 
 /*NUMPY_API
@@ -1206,6 +1234,24 @@ MpyIter_GetIndexPtr(MpyIter *iter)
     npy_uint32 itflags = NIT_ITFLAGS(iter);
     /*int ndim = NIT_NDIM(iter);*/
     int nop = NIT_NOP(iter);
+
+    NpyIter_AxisData *axisdata = NIT_AXISDATA(iter);
+
+    if (itflags&NPY_ITFLAG_HASINDEX) {
+        /* The index is just after the data pointers */
+        return (npy_intp*)NAD_PTRS(axisdata) + nop;
+    }
+    else {
+        return NULL;
+    }
+}
+
+NPY_NO_EXPORT npy_intp *
+MpyIter_GetOffIndexPtr(MpyIter *iter)
+{
+    npy_uint32 itflags = NIT_ITFLAGS(iter);
+    /*int ndim = NIT_NDIM(iter);*/
+    int nop = NIT_NOP(iter);
     MpyIter *offiter = (MpyIter *) NIT_OFFITER(iter);
 
     NpyIter_AxisData *axisdata = NIT_AXISDATA(offiter);
@@ -1265,6 +1311,24 @@ MpyIter_GetInnerStrideArray(MpyIter *iter)
     npy_uint32 itflags = NIT_ITFLAGS(iter);
     /*int ndim = NIT_NDIM(iter);*/
     int nop = NIT_NOP(iter);
+
+
+    if (itflags&NPY_ITFLAG_BUFFER) {
+        NpyIter_BufferData *data = NIT_BUFFERDATA(iter);
+        return NBF_STRIDES(data);
+    }
+    else {
+        NpyIter_AxisData *axisdata = NIT_AXISDATA(iter);
+        return NAD_STRIDES(axisdata);
+    }
+}
+
+NPY_NO_EXPORT npy_intp *
+MpyIter_GetOffInnerStrideArray(MpyIter *iter)
+{
+    npy_uint32 itflags = NIT_ITFLAGS(iter);
+    /*int ndim = NIT_NDIM(iter);*/
+    int nop = NIT_NOP(iter);
     MpyIter *offiter = (MpyIter *) NIT_OFFITER(iter);
 
     if (itflags&NPY_ITFLAG_BUFFER) {
@@ -1277,24 +1341,17 @@ MpyIter_GetInnerStrideArray(MpyIter *iter)
     }
 }
 
-/*NUMPY_API
- * Gets the array of strides for the specified axis.
- * If the iterator is tracking a multi-index, gets the strides
- * for the axis specified, otherwise gets the strides for
- * the iteration axis as Fortran order (fastest-changing axis first).
- *
- * Returns NULL if an error occurs.
- */
-NPY_NO_EXPORT npy_intp *
-MpyIter_GetAxisStrideArray(MpyIter *iter, int axis)
-{
+
+static npy_intp *
+getAxisStrideArray(MpyIter *initer, int axis, int isoffload) {
+    MpyIter *iter = (isoffload) ? (MpyIter *) NIT_OFFITER(iter) : initer;
+
     npy_uint32 itflags = NIT_ITFLAGS(iter);
     int idim, ndim = NIT_NDIM(iter);
     int nop = NIT_NOP(iter);
-    MpyIter *offiter = (MpyIter *) NIT_OFFITER(iter);
 
     npy_int8 *perm = NIT_PERM(iter);
-    NpyIter_AxisData *axisdata = NIT_AXISDATA(offiter);
+    NpyIter_AxisData *axisdata = NIT_AXISDATA(iter);
     npy_intp sizeof_axisdata = NIT_AXISDATA_SIZEOF(itflags, ndim, nop);
 
     if (axis < 0 || axis >= ndim) {
@@ -1324,6 +1381,26 @@ MpyIter_GetAxisStrideArray(MpyIter *iter, int axis)
 }
 
 /*NUMPY_API
+ * Gets the array of strides for the specified axis.
+ * If the iterator is tracking a multi-index, gets the strides
+ * for the axis specified, otherwise gets the strides for
+ * the iteration axis as Fortran order (fastest-changing axis first).
+ *
+ * Returns NULL if an error occurs.
+ */
+NPY_NO_EXPORT npy_intp *
+MpyIter_GetAxisStrideArray(MpyIter *iter, int axis)
+{
+    return getAxisStrideArray(iter, axis, 0);
+}
+
+NPY_NO_EXPORT npy_intp *
+MpyIter_GetOffAxisStrideArray(MpyIter *iter, int axis)
+{
+    return getAxisStrideArray(iter, axis, 1);
+}
+
+/*NUMPY_API
  * Get an array of strides which are fixed.  Any strides which may
  * change during iteration receive the value NPY_MAX_INTP.  Once
  * the iterator is ready to iterate, call this to get the strides
@@ -1338,13 +1415,11 @@ MpyIter_GetInnerFixedStrideArray(MpyIter *iter, npy_intp *out_strides)
     npy_uint32 itflags = NIT_ITFLAGS(iter);
     int ndim = NIT_NDIM(iter);
     int iop, nop = NIT_NOP(iter);
-    MpyIter *offiter = (MpyIter *) NIT_OFFITER(iter);
 
-    NpyIter_AxisData *axisdata0 = NIT_AXISDATA(offiter);
+    NpyIter_AxisData *axisdata0 = NIT_AXISDATA(iter);
     npy_intp sizeof_axisdata = NIT_AXISDATA_SIZEOF(itflags, ndim, nop);
 
     if (itflags&NPY_ITFLAG_BUFFER) {
-        //TODO
         NpyIter_BufferData *data = NIT_BUFFERDATA(iter);
         npyiter_opitflags *op_itflags = NIT_OPITFLAGS(iter);
         npy_intp stride, *strides = NBF_STRIDES(data),
@@ -1418,6 +1493,23 @@ MpyIter_GetInnerFixedStrideArray(MpyIter *iter, npy_intp *out_strides)
  */
 NPY_NO_EXPORT npy_intp *
 MpyIter_GetInnerLoopSizePtr(MpyIter *iter)
+{
+    npy_uint32 itflags = NIT_ITFLAGS(iter);
+    /*int ndim = NIT_NDIM(iter);*/
+    int nop = NIT_NOP(iter);
+
+    if (itflags&NPY_ITFLAG_BUFFER) {
+        NpyIter_BufferData *data = NIT_BUFFERDATA(iter);
+        return &NBF_SIZE(data);
+    }
+    else {
+        NpyIter_AxisData *axisdata = NIT_AXISDATA(iter);
+        return &NAD_SHAPE(axisdata);
+    }
+}
+
+NPY_NO_EXPORT npy_intp *
+MpyIter_GetOffInnerLoopSizePtr(MpyIter *iter)
 {
     npy_uint32 itflags = NIT_ITFLAGS(iter);
     /*int ndim = NIT_NDIM(iter);*/

@@ -1066,9 +1066,9 @@ iterator_loop(PyUFuncObject *ufunc,
             MpyIter_Deallocate(iter);
             return -1;
         }
-        dataptr = MpyIter_GetDataPtrArray(iter);
-        stride = MpyIter_GetInnerStrideArray(iter);
-        count_ptr = MpyIter_GetInnerLoopSizePtr(iter);
+        dataptr = MpyIter_GetOffDataPtrArray(iter);
+        stride = MpyIter_GetOffInnerStrideArray(iter);
+        count_ptr = MpyIter_GetOffInnerLoopSizePtr(iter);
         device = MpyIter_GetDevice(iter);
 
         MPY_BEGIN_THREADS_NDITER(iter);

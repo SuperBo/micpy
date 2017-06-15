@@ -209,7 +209,7 @@ static int _import_pymicarray() {
     (*(PyMicArrayObject ** (*)(MpyIter *)) \
      PyMicArray_API[43])
 #define MpyIter_GetDataPtrArray \
-    (*(npy_intp * (*)(MpyIter *)) \
+    (*(char ** (*)(MpyIter *)) \
      PyMicArray_API[44])
 #define MpyIter_GetInnerLoopSizePtr \
     (*(npy_intp * (*)(MpyIter *)) \
@@ -224,6 +224,15 @@ static int _import_pymicarray() {
     (*(int (*)(MpyIter *)) \
      PyMicArray_API[48])
 #define MpyIter_IterationNeedsAPI \
-    ((npy_bool (*)(MpyIter *)) \
+    (*(npy_bool (*)(MpyIter *)) \
      PyMicArray_API[49])
+#define MpyIter_GetOffDataPtrArray \
+    (*(npy_intp * (*)(MpyIter *)) \
+     PyMicArray_API[50])
+#define MpyIter_GetOffInnerLoopSizePtr \
+    (*(npy_intp * (*)(MpyIter *)) \
+     PyMicArray_API[51])
+#define MpyIter_GetOffInnerStrideArray \
+    (*(npy_intp * (*)(MpyIter *)) \
+     PyMicArray_API[52])
 #endif

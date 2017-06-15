@@ -60,6 +60,9 @@
         (void *) &MpyIter_GetIterNext,\
         (void *) &MpyIter_GetDevice,\
         (void *) &MpyIter_IterationNeedsAPI,\
+        (void *) &MpyIter_GetOffDataPtrArray,\
+        (void *) &MpyIter_GetOffInnerLoopSizePtr,\
+        (void *) &MpyIter_GetOffInnerStrideArray,\
         NULL\
     }
 

@@ -97,11 +97,17 @@ MpyIter_GetIterIndexRange(MpyIter *iter,
 NPY_NO_EXPORT int
 MpyIter_GetShape(MpyIter *iter, npy_intp *outshape);
 
-NPY_NO_EXPORT npy_intp *
+NPY_NO_EXPORT char **
 MpyIter_GetDataPtrArray(MpyIter *iter);
 
 NPY_NO_EXPORT npy_intp *
+MpyIter_GetOffDataPtrArray(MpyIter *iter);
+
+NPY_NO_EXPORT char **
 MpyIter_GetInitialDataPtrArray(MpyIter *iter);
+
+NPY_NO_EXPORT npy_intp *
+MpyIter_GetOffInitialDataPtrArray(MpyIter *iter);
 
 NPY_NO_EXPORT PyArray_Descr **
 MpyIter_GetDescrArray(MpyIter *iter);
@@ -114,6 +120,9 @@ MpyIter_GetIterView(MpyIter *iter, npy_intp i);
 
 NPY_NO_EXPORT npy_intp *
 MpyIter_GetIndexPtr(MpyIter *iter);
+
+NPY_NO_EXPORT npy_intp *
+MpyIter_GetOffIndexPtr(MpyIter *iter);
 
 NPY_NO_EXPORT void
 MpyIter_GetReadFlags(MpyIter *iter, char *outreadflags);
@@ -131,13 +140,22 @@ NPY_NO_EXPORT npy_intp *
 MpyIter_GetInnerStrideArray(MpyIter *iter);
 
 NPY_NO_EXPORT npy_intp *
+MpyIter_GetOffInnerStrideArray(MpyIter *iter);
+
+NPY_NO_EXPORT npy_intp *
 MpyIter_GetAxisStrideArray(MpyIter *iter, int axis);
+
+NPY_NO_EXPORT npy_intp *
+MpyIter_GetOffAxisStrideArray(MpyIter *iter, int axis);
 
 NPY_NO_EXPORT void
 MpyIter_GetInnerFixedStrideArray(MpyIter *iter, npy_intp *out_strides);
 
 NPY_NO_EXPORT npy_intp *
 MpyIter_GetInnerLoopSizePtr(MpyIter *iter);
+
+NPY_NO_EXPORT npy_intp *
+MpyIter_GetOffInnerLoopSizePtr(MpyIter *iter);
 
 NPY_NO_EXPORT int
 MpyIter_GetDevice(MpyIter *iter);
