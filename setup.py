@@ -25,7 +25,7 @@ def add_multiarray_ext(config):
             'cblasfuncs.c', 'common.c', 'calculation.c', 'convert.c',
             'conversion_utils.c', 'creators.c', 'getset.c',
             'methods.c', 'shape.c', 'scalar.c', 'item_selection.c',
-            'convert_datatype.c', 'dtype_transfer.c', 'mpymem_overlap.c'
+            'convert_datatype.c', 'dtype_transfer.c', 'mpymem_overlap.c',
             'nditer_templ.c.src', 'nditer_constr.c', 'nditer_api.c',
             'arraytypes.c.src',
             'multiarraymodule.c']
@@ -79,6 +79,7 @@ def add_umath_ext(config):
                      'simd.inc.src']
     umath_sources = [join(umath_dir, f) for f in umath_sources]
     umath_sources.append(join(mpymath_dir, 'non_standards.h.src'))
+    umath_sources.append(join(numpy_private_dir, 'mem_overlap.c'))
     umath_sources.append(generate_umath_c)
 
     config.add_extension('umath',

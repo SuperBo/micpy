@@ -67,9 +67,9 @@
                                             PyMicArray_STRIDE(arr, 0) : \
                                             PyMicArray_ITEMSIZE(arr)));
 
-#define PyMicArray_TRIVIALLY_ITERABLE_PAIR(arr1, arr2) \
+#define PyMicArray_TRIVIALLY_ITERABLE_PAIR(arr1, arr2, arr1_read, arr2_read) \
             PyArray_TRIVIALLY_ITERABLE_PAIR(\
-                    (PyArrayObject *)arr1,(PyArrayObject *)arr2)
+                    (PyArrayObject *)arr1,(PyArrayObject *)arr2, arr1_read, arr2_read)
 #define PyMicArray_PREPARE_TRIVIAL_PAIR_ITERATION(arr1, arr2, \
                                         count, \
                                         data1, data2, \
@@ -83,11 +83,12 @@
                     stride2 = PyMicArray_TRIVIAL_PAIR_ITERATION_STRIDE(size2, arr2); \
                 }
 
-#define PyMicArray_TRIVIALLY_ITERABLE_TRIPLE(arr1, arr2, arr3) \
+#define PyMicArray_TRIVIALLY_ITERABLE_TRIPLE(arr1, arr2, arr3, arr1_read, arr2_read, arr3_read) \
             PyArray_TRIVIALLY_ITERABLE_TRIPLE(\
                 (PyArrayObject *)arr1,\
                 (PyArrayObject *)arr2,\
-                (PyArrayObject *)arr3)
+                (PyArrayObject *)arr3,\
+                arr1_read, arr2_read, arr3_read)
 #define PyMicArray_PREPARE_TRIVIAL_TRIPLE_ITERATION(arr1, arr2, arr3, \
                                         count, \
                                         data1, data2, data3, \
@@ -1151,7 +1152,9 @@ execute_legacy_ufunc_loop(PyUFuncObject *ufunc,
             }
             else if (op[1] != NULL &&
                         PyMicArray_NDIM(op[1]) >= PyMicArray_NDIM(op[0]) &&
-                        PyMicArray_TRIVIALLY_ITERABLE_PAIR(op[0], op[1])) {
+                        PyMicArray_TRIVIALLY_ITERABLE_PAIR(op[0], op[1],
+                                                           PyArray_TRIVIALLY_ITERABLE_OP_READ,
+                                                           PyArray_TRIVIALLY_ITERABLE_OP_NOREAD)) {
 
                 NPY_UF_DBG_PRINT("trivial 1 input\n");
                 trivial_two_operand_loop(op, innerloop, innerloopdata);
@@ -1162,7 +1165,9 @@ execute_legacy_ufunc_loop(PyUFuncObject *ufunc,
         else if (nin == 2 && nout == 1) {
             if (op[2] == NULL &&
                         (order == NPY_ANYORDER || order == NPY_KEEPORDER) &&
-                        PyMicArray_TRIVIALLY_ITERABLE_PAIR(op[0], op[1])) {
+                        PyMicArray_TRIVIALLY_ITERABLE_PAIR(op[0], op[1],
+                                                           PyArray_TRIVIALLY_ITERABLE_OP_READ,
+                                                           PyArray_TRIVIALLY_ITERABLE_OP_READ)) {
                 PyMicArrayObject *tmp;
                 /*
                  * Have to choose the input with more dimensions to clone, as
@@ -1197,7 +1202,10 @@ execute_legacy_ufunc_loop(PyUFuncObject *ufunc,
             else if (op[2] != NULL &&
                     PyMicArray_NDIM(op[2]) >= PyMicArray_NDIM(op[0]) &&
                     PyMicArray_NDIM(op[2]) >= PyMicArray_NDIM(op[1]) &&
-                    PyMicArray_TRIVIALLY_ITERABLE_TRIPLE(op[0], op[1], op[2])) {
+                    PyMicArray_TRIVIALLY_ITERABLE_TRIPLE(op[0], op[1], op[2],
+                                                         PyArray_TRIVIALLY_ITERABLE_OP_READ,
+                                                         PyArray_TRIVIALLY_ITERABLE_OP_READ,
+                                                         PyArray_TRIVIALLY_ITERABLE_OP_NOREAD)) {
 
                 NPY_UF_DBG_PRINT("trivial 2 input\n");
                 trivial_three_operand_loop(op, innerloop, innerloopdata);
