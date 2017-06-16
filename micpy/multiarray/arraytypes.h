@@ -6,16 +6,25 @@
 
 /* needed for blasfuncs */
 NPY_NO_EXPORT void
-FLOAT_dot(char *, npy_intp, char *, npy_intp, char *, npy_intp, int);
+FLOAT_dot(void *, npy_intp, void *, npy_intp, void *, npy_intp, int);
 
 NPY_NO_EXPORT void
-CFLOAT_dot(char *, npy_intp, char *, npy_intp, char *, npy_intp, int);
+CFLOAT_dot(void *, npy_intp, void *, npy_intp, void *, npy_intp, int);
 
 NPY_NO_EXPORT void
-DOUBLE_dot(char *, npy_intp, char *, npy_intp, char *, npy_intp, int);
+DOUBLE_dot(void *, npy_intp, void *, npy_intp, void *, npy_intp, int);
 
 NPY_NO_EXPORT void
-CDOUBLE_dot(char *, npy_intp, char *, npy_intp, char *, npy_intp, int);
+CDOUBLE_dot(void *, npy_intp, void *, npy_intp, void *, npy_intp, int);
+
+NPY_NO_EXPORT void
+CFLOAT_vdot(void *, npy_intp, void *, npy_intp, void *, npy_intp, int);
+
+NPY_NO_EXPORT void
+CDOUBLE_vdot(void *, npy_intp, void *, npy_intp, void *, npy_intp, int);
+
+NPY_NO_EXPORT void
+CLONGDOUBLE_vdot(void *, npy_intp, void *, npy_intp, void *, npy_intp, int);
 
 NPY_NO_EXPORT PyMicArray_ArrFuncs *
 PyMicArray_GetArrFuncs(int typenum);

@@ -215,13 +215,12 @@ PyMicArray_MatrixProduct2(PyObject *op1, PyObject *op2, PyMicArrayObject* out)
         return NULL;
     }
 
-    Py_INCREF(typec);
     ap1 = (PyMicArrayObject *)PyMicArray_FromAny(device, op1, typec, 0, 0,
                                         NPY_ARRAY_ALIGNED, NULL);
     if (ap1 == NULL) {
-        Py_DECREF(typec);
         return NULL;
     }
+    Py_INCREF(typec);
     ap2 = (PyMicArrayObject *)PyMicArray_FromAny(device, op2, typec, 0, 0,
                                         NPY_ARRAY_ALIGNED, NULL);
     if (ap2 == NULL) {
@@ -589,6 +588,119 @@ array_matrixproduct(PyObject *NPY_UNUSED(dummy), PyObject *args, PyObject* kwds)
 }
 
 static PyObject *
+array_vdot(PyObject *NPY_UNUSED(dummy), PyObject *args)
+{
+    int typenum, device;
+    char *ip1, *ip2, *op;
+    npy_intp n, stride1, stride2;
+    PyObject *op1, *op2;
+    npy_intp newdimptr[1] = {-1};
+    PyArray_Dims newdims = {newdimptr, 1};
+    PyMicArrayObject *ap1 = NULL, *ap2  = NULL, *ret = NULL;
+    PyArray_Descr *type;
+    PyMicArray_DotFunc *vdot;
+    NPY_BEGIN_THREADS_DEF;
+
+    if (!PyArg_ParseTuple(args, "OO:vdot", &op1, &op2)) {
+        return NULL;
+    }
+
+    device = get_common_device2(op1, op2);
+
+    /*
+     * Conjugating dot product using the BLAS for vectors.
+     * Flattens both op1 and op2 before dotting.
+     */
+    typenum = PyMicArray_ObjectType(op1, 0);
+    typenum = PyMicArray_ObjectType(op2, typenum);
+    type = PyArray_DescrFromType(typenum);
+    if (type == NULL) {
+        PyErr_SetString(PyExc_TypeError, "Cannot find a common data type.");
+        return NULL;
+    }
+
+    ap1 = (PyMicArrayObject *)PyMicArray_FromAny(device, op1, type, 0, 0, 0, NULL);
+    if (ap1 == NULL) {
+        goto fail;
+    }
+
+    op1 = PyMicArray_Newshape(ap1, &newdims, NPY_CORDER);
+    if (op1 == NULL) {
+        goto fail;
+    }
+    Py_DECREF(ap1);
+    ap1 = (PyMicArrayObject *)op1;
+
+    Py_INCREF(type);
+    ap2 = (PyMicArrayObject *)PyMicArray_FromAny(device, op2, type, 0, 0, 0, NULL);
+    if (ap2 == NULL) {
+        goto fail;
+    }
+    op2 = PyMicArray_Newshape(ap2, &newdims, NPY_CORDER);
+    if (op2 == NULL) {
+        goto fail;
+    }
+    Py_DECREF(ap2);
+    ap2 = (PyMicArrayObject *)op2;
+
+    if (PyMicArray_DIM(ap2, 0) != PyMicArray_DIM(ap1, 0)) {
+        PyErr_SetString(PyExc_ValueError,
+                "vectors have different lengths");
+        goto fail;
+    }
+
+    /* array scalar output */
+    ret = new_array_for_sum(ap1, ap2, NULL, 0, (npy_intp *)NULL, typenum, NULL);
+    if (ret == NULL) {
+        goto fail;
+    }
+
+    n = PyMicArray_DIM(ap1, 0);
+    stride1 = PyMicArray_STRIDE(ap1, 0);
+    stride2 = PyMicArray_STRIDE(ap2, 0);
+    ip1 = PyMicArray_DATA(ap1);
+    ip2 = PyMicArray_DATA(ap2);
+    op = PyMicArray_DATA(ret);
+
+    switch (typenum) {
+        case NPY_CFLOAT:
+            vdot = (PyMicArray_DotFunc *)CFLOAT_vdot;
+            break;
+        case NPY_CDOUBLE:
+            vdot = (PyMicArray_DotFunc *)CDOUBLE_vdot;
+            break;
+        case NPY_CLONGDOUBLE:
+            vdot = (PyMicArray_DotFunc *)CLONGDOUBLE_vdot;
+            break;
+        default:
+            vdot = PyMicArray_GetArrFuncs(typenum)->dotfunc;
+            if (vdot == NULL) {
+                PyErr_SetString(PyExc_ValueError,
+                        "function not available for this data type");
+                goto fail;
+            }
+    }
+
+    if (n < 500) {
+        vdot(ip1, stride1, ip2, stride2, op, n, device);
+    }
+    else {
+        NPY_BEGIN_THREADS_DESCR(type);
+        vdot(ip1, stride1, ip2, stride2, op, n, device);
+        NPY_END_THREADS_DESCR(type);
+    }
+
+    Py_XDECREF(ap1);
+    Py_XDECREF(ap2);
+    return PyMicArray_Return(ret);
+fail:
+    Py_XDECREF(ap1);
+    Py_XDECREF(ap2);
+    Py_XDECREF(ret);
+    return NULL;
+}
+
+static PyObject *
 array_fastCopyAndTranspose(PyObject *NPY_UNUSED(dummy), PyObject *args)
 {
     //TODO: implement this
@@ -746,10 +858,10 @@ static struct PyMethodDef array_module_methods[] = {
     {"dot",
         (PyCFunction)array_matrixproduct,
         METH_VARARGS | METH_KEYWORDS, NULL},
-    /*{"vdot",
+    {"vdot",
         (PyCFunction)array_vdot,
         METH_VARARGS | METH_KEYWORDS, NULL},
-    {"matmul",
+    /*{"matmul",
         (PyCFunction)array_matmul,
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"c_einsum",

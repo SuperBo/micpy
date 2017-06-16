@@ -1457,6 +1457,108 @@ CLONGDOUBLE_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2,
 
 /*
  *****************************************************************************
+ **                                 VDOT                                    **
+ *****************************************************************************
+ */
+
+/*
+ * Special vdot func for complex types
+ */
+
+/**begin repeat
+ *
+ * #name = CFLOAT, CDOUBLE#
+ * #ctype = npy_cfloat, npy_cdouble#
+ * #type = npy_float, npy_double#
+ * #prefix = c, z#
+ */
+NPY_NO_EXPORT void
+@name@_vdot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2,
+            void *op, npy_intp n, int device)
+{
+    int is1b = blas_stride(is1, sizeof(@ctype@));
+    int is2b = blas_stride(is2, sizeof(@ctype@));
+
+    if (is1b && is2b) {
+        #pragma omp target device(device) map(to: op, n, _ip1, is1, is1b,\
+                                                  _ip2, is2, is2b)
+        {
+            char *ip1 = (char *) _ip1;
+            char *ip2 = (char *) _ip2;
+
+            double sum[2] = {0., 0.};  /* double for stability */
+
+            while (n > 0) {
+                int chunk = n < MPY_CBLAS_CHUNK ? n : MPY_CBLAS_CHUNK;
+                @type@ tmp[2];
+
+                cblas_@prefix@dotc_sub((int)n, ip1, is1b, ip2, is2b, tmp);
+                sum[0] += (double)tmp[0];
+                sum[1] += (double)tmp[1];
+                /* use char strides here */
+                ip1 += chunk * is1;
+                ip2 += chunk * is2;
+                n -= chunk;
+            }
+            ((@type@ *)op)[0] = (@type@)sum[0];
+            ((@type@ *)op)[1] = (@type@)sum[1];
+        }
+    }
+    else
+    {
+        #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
+        {
+            char *ip1 = (char *) _ip1;
+            char *ip2 = (char *) _ip2;
+
+            @type@ sumr = (@type@)0.0;
+            @type@ sumi = (@type@)0.0;
+            npy_intp i;
+
+            for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
+                const @type@ ip1r = ((@type@ *)ip1)[0];
+                const @type@ ip1i = ((@type@ *)ip1)[1];
+                const @type@ ip2r = ((@type@ *)ip2)[0];
+                const @type@ ip2i = ((@type@ *)ip2)[1];
+
+                sumr += ip1r * ip2r + ip1i * ip2i;
+                sumi += ip1r * ip2i - ip1i * ip2r;
+            }
+            ((@type@ *)op)[0] = sumr;
+            ((@type@ *)op)[1] = sumi;
+        }
+    }
+}
+/**end repeat**/
+
+NPY_NO_EXPORT void
+CLONGDOUBLE_vdot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2,
+                 void *op, npy_intp n, int device)
+{
+    #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
+    {
+        char *ip1 = (char *) _ip1;
+        char *ip2 = (char *) _ip2;
+        npy_longdouble tmpr = 0.0L;
+        npy_longdouble tmpi = 0.0L;
+        npy_intp i;
+
+        for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
+            const npy_longdouble ip1r = ((npy_longdouble *)ip1)[0];
+            const npy_longdouble ip1i = ((npy_longdouble *)ip1)[1];
+            const npy_longdouble ip2r = ((npy_longdouble *)ip2)[0];
+            const npy_longdouble ip2i = ((npy_longdouble *)ip2)[1];
+
+            tmpr += ip1r * ip2r + ip1i * ip2i;
+            tmpi += ip1r * ip2i - ip1i * ip2r;
+        }
+        ((npy_longdouble *)op)[0] = tmpr;
+        ((npy_longdouble *)op)[1] = tmpi;
+    }
+}
+
+/*
+ *****************************************************************************
  **                                 FILL                                    **
  *****************************************************************************
  */
@@ -2147,9 +2249,22 @@ static PyMicArray_ArrFuncs _Py@NAME@_MicArrFuncs = {
     (PyMicArray_ArgFunc*)@from@_argmin
 };
 
-
 /**end repeat**/
 
+static PyMicArray_ArrFuncs _dummy_MicArrFuncs = {
+    {
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+    },
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    {
+        NULL, NULL, NULL
+    },
+    {
+        NULL, NULL, NULL
+    },
+    NULL, NULL, NULL, NULL
+};
 
 /*
  *****************************************************************************
@@ -2182,13 +2297,11 @@ PyMicArray_GetArrFuncs(int typenum) {
  *         CFloat, CDouble, CLongDouble,
  *         Datetime, Timedelta#
  */
-
     case NPY_@type@:
         return &_Py@NAME@_MicArrFuncs;
-
  /**end repeat**/
     }
 
-    /*  Return defalut type */
-    return NULL;
+    /*  Return dummy arrfuncs */
+    return &_dummy_MicArrFuncs;
 }
