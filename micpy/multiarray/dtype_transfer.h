@@ -2,11 +2,18 @@
 #define MPY_DTYPE_TRANSFER_H_
 
 NPY_NO_EXPORT int
-PyMicArray_GetDTypeTransferFunction(int aligned,
+PyMicArray_GetDTypeCopySwapFn(int aligned,
+                            npy_intp src_stride, npy_intp dst_stride,
+                            PyArray_Descr *dtype,
+                            PyMicArray_StridedUnaryOp **outstransfer,
+                            NpyAuxData **outtransferdata);
+
+NPY_NO_EXPORT int
+PyMicArray_GetDTypeTransferFunction(int device, int aligned,
                             npy_intp src_stride, npy_intp dst_stride,
                             PyArray_Descr *src_dtype, PyArray_Descr *dst_dtype,
                             int move_references,
-                            PyArray_StridedUnaryOp **out_stransfer,
+                            PyMicArray_StridedUnaryOp **out_stransfer,
                             NpyAuxData **out_transferdata,
                             int *out_needs_api);
 
@@ -19,7 +26,7 @@ PyMicArray_GetMaskedDTypeTransferFunction(int aligned,
                             PyArray_Descr *dst_dtype,
                             PyArray_Descr *mask_dtype,
                             int move_references,
-                            PyArray_MaskedStridedUnaryOp **out_stransfer,
+                            PyMicArray_MaskedStridedUnaryOp **out_stransfer,
                             NpyAuxData **out_transferdata,
                             int *out_needs_api);
 

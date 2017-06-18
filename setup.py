@@ -27,7 +27,7 @@ def add_multiarray_ext(config):
             'methods.c', 'shape.c', 'scalar.c', 'item_selection.c',
             'convert_datatype.c', 'dtype_transfer.c', 'mpymem_overlap.c',
             'nditer_templ.c.src', 'nditer_constr.c', 'nditer_api.c',
-            'arraytypes.c.src',
+            'arraytypes.c.src', 'mpy_lowlevel_strided_loops.c.src',
             'multiarraymodule.c']
     multiarray_sources = [join(multiarray_dir, f) for f in multiarray_sources]
 

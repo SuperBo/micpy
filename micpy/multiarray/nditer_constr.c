@@ -3192,6 +3192,7 @@ npyiter_allocate_transfer_functions(MpyIter *iter)
     npy_uint32 itflags = NIT_ITFLAGS(iter);
     /*int ndim = NIT_NDIM(iter);*/
     int iop = 0, nop = NIT_NOP(iter);
+    int device = NIT_DEVICE(iter);
 
     npy_intp i;
     npyiter_opitflags *op_itflags = NIT_OPITFLAGS(iter);
@@ -3200,12 +3201,12 @@ npyiter_allocate_transfer_functions(MpyIter *iter)
     PyMicArrayObject **op = NIT_OPERANDS(iter);
     PyArray_Descr **op_dtype = NIT_DTYPES(iter);
     npy_intp *strides = NAD_STRIDES(axisdata), op_stride;
-    PyArray_StridedUnaryOp **readtransferfn = NBF_READTRANSFERFN(bufferdata),
+    PyMicArray_StridedUnaryOp **readtransferfn = NBF_READTRANSFERFN(bufferdata),
                         **writetransferfn = NBF_WRITETRANSFERFN(bufferdata);
     NpyAuxData **readtransferdata = NBF_READTRANSFERDATA(bufferdata),
                **writetransferdata = NBF_WRITETRANSFERDATA(bufferdata);
 
-    PyArray_StridedUnaryOp *stransfer = NULL;
+    PyMicArray_StridedUnaryOp *stransfer = NULL;
     NpyAuxData *transferdata = NULL;
     int needs_api = 0;
 
@@ -3226,6 +3227,7 @@ npyiter_allocate_transfer_functions(MpyIter *iter)
             if (flags & NPY_OP_ITFLAG_READ) {
                 int move_references = 0;
                 if (PyMicArray_GetDTypeTransferFunction(
+                                        device,
                                         (flags & NPY_OP_ITFLAG_ALIGNED) != 0,
                                         op_stride,
                                         op_dtype[iop]->elsize,
@@ -3267,7 +3269,7 @@ npyiter_allocate_transfer_functions(MpyIter *iter)
                                 PyMicArray_DESCR(op[iop]),
                                 mask_dtype,
                                 move_references,
-                                (PyArray_MaskedStridedUnaryOp **)&stransfer,
+                                (PyMicArray_MaskedStridedUnaryOp **)&stransfer,
                                 &transferdata,
                                 &needs_api) != NPY_SUCCEED) {
                         goto fail;
@@ -3275,6 +3277,7 @@ npyiter_allocate_transfer_functions(MpyIter *iter)
                 }
                 else {
                     if (PyMicArray_GetDTypeTransferFunction(
+                                        device,
                                         (flags & NPY_OP_ITFLAG_ALIGNED) != 0,
                                         op_dtype[iop]->elsize,
                                         op_stride,
@@ -3298,6 +3301,7 @@ npyiter_allocate_transfer_functions(MpyIter *iter)
                  * src references.
                  */
                 if (PyMicArray_GetDTypeTransferFunction(
+                                        device,
                                         (flags & NPY_OP_ITFLAG_ALIGNED) != 0,
                                         op_dtype[iop]->elsize, 0,
                                         op_dtype[iop], NULL,

@@ -792,7 +792,7 @@ PyMicArray_AssignArrayFromHost(PyMicArrayObject *dst, PyArrayObject *src,
     if (raw_array_assign_device_array(PyMicArray_NDIM(dst), PyMicArray_DIMS(dst),
                 PyMicArray_DESCR(dst),
                 PyMicArray_DEVICE(dst), PyMicArray_BYTES(dst), PyMicArray_STRIDES(dst),
-                host_device, PyMicArray_BYTES(src), src_strides) < 0) {
+                host_device, PyArray_BYTES(src), src_strides) < 0) {
         goto fail;
     }
 

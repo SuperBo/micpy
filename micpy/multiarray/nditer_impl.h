@@ -23,7 +23,7 @@
 
 #define _MICARRAYMODULE
 #include "arrayobject.h"
-
+#include "mpy_lowlevel_strided_loops.h"
 #include "lowlevel_strided_loops.h"
 
 /********** ITERATOR CONSTRUCTION TIMING **************/
@@ -256,11 +256,11 @@ struct NpyIter_BD {
         (&(bufferdata)->bd_flexdata + 2*(nop)))
 #define NBF_REDUCE_OUTERPTRS(bufferdata) ((char **) \
         (&(bufferdata)->bd_flexdata + 3*(nop)))
-#define NBF_READTRANSFERFN(bufferdata) ((PyArray_StridedUnaryOp **) \
+#define NBF_READTRANSFERFN(bufferdata) ((PyMicArray_StridedUnaryOp **) \
         (&(bufferdata)->bd_flexdata + 4*(nop)))
 #define NBF_READTRANSFERDATA(bufferdata) ((NpyAuxData **) \
         (&(bufferdata)->bd_flexdata + 5*(nop)))
-#define NBF_WRITETRANSFERFN(bufferdata) ((PyArray_StridedUnaryOp **) \
+#define NBF_WRITETRANSFERFN(bufferdata) ((PyMicArray_StridedUnaryOp **) \
         (&(bufferdata)->bd_flexdata + 6*(nop)))
 #define NBF_WRITETRANSFERDATA(bufferdata) ((NpyAuxData **) \
         (&(bufferdata)->bd_flexdata + 7*(nop)))

@@ -2,6 +2,120 @@
 #define __MPY_LOWLEVEL_STRIDED_LOOPS_H
 #include <npy_config.h>
 
+/*
+ * This function pointer is for unary operations that input an
+ * arbitrarily strided one-dimensional array segment and output
+ * an arbitrarily strided array segment of the same size.
+ * It may be a fully general function, or a specialized function
+ * when the strides or item size have particular known values.
+ *
+ * Examples of unary operations are a straight copy, a byte-swap,
+ * and a casting operation,
+ *
+ * The 'transferdata' parameter is slightly special, following a
+ * generic auxiliary data pattern defined in ndarraytypes.h
+ * Use NPY_AUXDATA_CLONE and NPY_AUXDATA_FREE to deal with this data.
+ *
+ */
+typedef void (PyMicArray_StridedUnaryOp)(void *dst, npy_intp dst_stride,
+                                    void *src, npy_intp src_stride,
+                                    npy_intp N, npy_intp src_itemsize,
+                                    NpyAuxData *transferdata, int device);
+
+/*
+ * This is for pointers to functions which behave exactly as
+ * for PyArray_StridedUnaryOp, but with an additional mask controlling
+ * which values are transformed.
+ *
+ * In particular, the 'i'-th element is operated on if and only if
+ * mask[i*mask_stride] is true.
+ */
+typedef void (PyMicArray_MaskedStridedUnaryOp)(void *dst, npy_intp dst_stride,
+                                    void *src, npy_intp src_stride,
+                                    npy_bool *mask, npy_intp mask_stride,
+                                    npy_intp N, npy_intp src_itemsize,
+                                    NpyAuxData *transferdata, int device);
+
+/*
+ * Gives back a function pointer to a specialized function for copying
+ * strided memory.  Returns NULL if there is a problem with the inputs.
+ *
+ * aligned:
+ *      Should be 1 if the src and dst pointers are always aligned,
+ *      0 otherwise.
+ * src_stride:
+ *      Should be the src stride if it will always be the same,
+ *      NPY_MAX_INTP otherwise.
+ * dst_stride:
+ *      Should be the dst stride if it will always be the same,
+ *      NPY_MAX_INTP otherwise.
+ * itemsize:
+ *      Should be the item size if it will always be the same, 0 otherwise.
+ *
+ */
+NPY_NO_EXPORT PyMicArray_StridedUnaryOp *
+PyMicArray_GetStridedCopyFn(int aligned,
+                        npy_intp src_stride, npy_intp dst_stride,
+                        npy_intp itemsize);
+
+/*
+ * Gives back a function pointer to a specialized function for copying
+ * and swapping strided memory.  This assumes each element is a single
+ * value to be swapped.
+ *
+ * For information on the 'aligned', 'src_stride' and 'dst_stride' parameters
+ * see above.
+ *
+ * Parameters are as for PyArray_GetStridedCopyFn.
+ */
+NPY_NO_EXPORT PyMicArray_StridedUnaryOp *
+PyMicArray_GetStridedCopySwapFn(int aligned,
+                            npy_intp src_stride, npy_intp dst_stride,
+                            npy_intp itemsize);
+
+/*
+ * Gives back a function pointer to a specialized function for copying
+ * and swapping strided memory.  This assumes each element is a pair
+ * of values, each of which needs to be swapped.
+ *
+ * For information on the 'aligned', 'src_stride' and 'dst_stride' parameters
+ * see above.
+ *
+ * Parameters are as for PyArray_GetStridedCopyFn.
+ */
+NPY_NO_EXPORT PyMicArray_StridedUnaryOp *
+PyMicArray_GetStridedCopySwapPairFn(int aligned,
+                            npy_intp src_stride, npy_intp dst_stride,
+                            npy_intp itemsize);
+
+/*
+ * Gives back a transfer function and transfer data pair which copies
+ * the data from source to dest, truncating it if the data doesn't
+ * fit, and padding with zero bytes if there's too much space.
+ *
+ * For information on the 'aligned', 'src_stride' and 'dst_stride' parameters
+ * see above.
+ *
+ * Returns NPY_SUCCEED or NPY_FAIL
+ */
+/*NPY_NO_EXPORT int
+PyMicArray_GetStridedZeroPadCopyFn(int aligned, int unicode_swap,
+                            npy_intp src_stride, npy_intp dst_stride,
+                            npy_intp src_itemsize, npy_intp dst_itemsize,
+                            PyMicArray_StridedUnaryOp **outstransfer,
+                            NpyAuxData **outtransferdata);*/
+
+/*
+ * For casts between built-in numeric types,
+ * this produces a function pointer for casting from src_type_num
+ * to dst_type_num.  If a conversion is unsupported, returns NULL
+ * without setting a Python exception.
+ */
+NPY_NO_EXPORT PyMicArray_StridedUnaryOp *
+PyMicArray_GetStridedNumericCastFn(int aligned,
+                            npy_intp src_stride, npy_intp dst_stride,
+                            int src_type_num, int dst_type_num);
+
 
 #pragma omp declare target
 /*

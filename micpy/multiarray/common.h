@@ -148,4 +148,7 @@ target_memset(void *ptr, int value, size_t num, int device_num)
     return ptr;
 }
 
+#define target_alloc omp_target_alloc
+#define target_free omp_target_free
+
 #endif

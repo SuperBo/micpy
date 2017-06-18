@@ -2001,6 +2001,7 @@ mpyiter_copy_from_buffers(MpyIter *iter)
     npy_intp *strides = NBF_STRIDES(bufferdata),
              *ad_strides = NAD_STRIDES(axisdata);
     npy_intp sizeof_axisdata = NIT_AXISDATA_SIZEOF(itflags, ndim, nop);
+    int device = NIT_DEVICE(iter);
     char **ad_ptrs = NAD_PTRS(axisdata);
     char **buffers = NBF_BUFFERS(bufferdata);
     char *buffer;
@@ -2008,7 +2009,7 @@ mpyiter_copy_from_buffers(MpyIter *iter)
     npy_intp reduce_outerdim = 0;
     npy_intp *reduce_outerstrides = NULL;
 
-    PyArray_StridedUnaryOp *stransfer = NULL;
+    PyMicArray_StridedUnaryOp *stransfer = NULL;
     NpyAuxData *transferdata = NULL;
 
     npy_intp axisdata_incr = NIT_AXISDATA_SIZEOF(itflags, ndim, nop) /
@@ -2161,7 +2162,7 @@ mpyiter_copy_from_buffers(MpyIter *iter)
             /* Decrement refs */
             stransfer(NULL, 0, buffer, dtypes[iop]->elsize,
                         transfersize, dtypes[iop]->elsize,
-                        transferdata);
+                        transferdata, device);
             /*
              * Zero out the memory for safety.  For instance,
              * if during iteration some Python code copied an
@@ -2207,7 +2208,7 @@ mpyiter_copy_to_buffers(MpyIter *iter, char **prev_dataptrs)
     npy_intp *reduce_outerstrides = NULL;
     char **reduce_outerptrs = NULL;
 
-    PyArray_StridedUnaryOp *stransfer = NULL;
+    PyMicArray_StridedUnaryOp *stransfer = NULL;
     NpyAuxData *transferdata = NULL;
 
     /*
