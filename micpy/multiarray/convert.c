@@ -12,6 +12,7 @@
 #include "npy_config.h"
 
 #define _MICARRAYMODULE
+#include "common.h"
 #include "arrayobject.h"
 #include "scalar.h"
 #include "creators.h"
@@ -205,7 +206,7 @@ PyMicArray_FillWithScalar(PyMicArrayObject *arr, PyObject *obj)
         /* TODO: switch to SAME_KIND casting */
         //TODO: distinguise CPU memory and MIC memory
         retcode = PyMicArray_AssignRawScalar(arr, dtype, value,
-                                NULL, NPY_UNSAFE_CASTING);
+                                CPU_DEVICE, NULL, NPY_UNSAFE_CASTING);
         Py_DECREF(dtype);
         return retcode;
     }
@@ -263,7 +264,7 @@ PyMicArray_AssignZero(PyMicArrayObject *dst,
     value = 0;
 
     retcode = PyMicArray_AssignRawScalar(dst, bool_dtype, (char *)&value,
-                                      wheremask, NPY_SAFE_CASTING);
+                                      CPU_DEVICE, wheremask, NPY_SAFE_CASTING);
 
     Py_DECREF(bool_dtype);
     return retcode;
@@ -293,7 +294,7 @@ PyMicArray_AssignOne(PyMicArrayObject *dst,
     value = 1;
 
     retcode = PyMicArray_AssignRawScalar(dst, bool_dtype, (char *)&value,
-                                      wheremask, NPY_SAFE_CASTING);
+                                      CPU_DEVICE, wheremask, NPY_SAFE_CASTING);
 
     Py_DECREF(bool_dtype);
     return retcode;

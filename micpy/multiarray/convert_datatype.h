@@ -2,6 +2,10 @@
 #define _MPY_ARRAY_CONVERT_DATATYPE_H_
 
 NPY_NO_EXPORT npy_bool
+can_cast_scalar_to(PyArray_Descr *scal_type, char *scal_data, int scal_device,
+                    PyArray_Descr *to, NPY_CASTING casting);
+
+NPY_NO_EXPORT npy_bool
 PyMicArray_CanCastArrayTo(PyMicArrayObject *arr, PyArray_Descr *to, NPY_CASTING casting);
 
 /*

@@ -36,7 +36,7 @@ PyMicArray_AssignArrayFromHost(PyMicArrayObject *dst, PyArrayObject *src,
 
 NPY_NO_EXPORT int
 PyMicArray_AssignRawScalar(PyMicArrayObject *dst,
-                        PyArray_Descr *src_dtype, char *src_data,
+                        PyArray_Descr *src_dtype, char *src_data, int src_device,
                         PyMicArrayObject *wheremask,
                         NPY_CASTING casting);
 
@@ -52,7 +52,7 @@ PyArray_AssignArrayFromDevice(PyArrayObject *dst, PyMicArrayObject *src,
  * Returns 0 on success, -1 on failure.
  */
 NPY_NO_EXPORT int
-raw_array_assign_scalar(int ndim, npy_intp *shape,
+raw_array_assign_scalar(int device, int ndim, npy_intp *shape,
         PyArray_Descr *dst_dtype, char *dst_data, npy_intp *dst_strides,
         PyArray_Descr *src_dtype, char *src_data);
 
@@ -63,7 +63,7 @@ raw_array_assign_scalar(int ndim, npy_intp *shape,
  * Returns 0 on success, -1 on failure.
  */
 NPY_NO_EXPORT int
-raw_array_wheremasked_assign_scalar(int ndim, npy_intp *shape,
+raw_array_wheremasked_assign_scalar(int device, int ndim, npy_intp *shape,
         PyArray_Descr *dst_dtype, char *dst_data, npy_intp *dst_strides,
         PyArray_Descr *src_dtype, char *src_data,
         PyArray_Descr *wheremask_dtype, char *wheremask_data,

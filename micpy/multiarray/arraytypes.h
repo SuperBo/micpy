@@ -2,6 +2,7 @@
 #define _MPY_ARRAYTYPES_H_
 
 //#include "common.h"
+#include "mpyndarraytypes.h"
 
 
 /* needed for blasfuncs */

@@ -11,13 +11,83 @@
 
 #define _MICARRAYMODULE
 #include "arrayobject.h"
-//#include "convert_datatype.h"
+#include "convert_datatype.h"
 //#include "methods.h"
+#include "mpy_lowlevel_strided_loops.h"
+#include "dtype_transfer.h"
 #include "common.h"
 #include "shape.h"
 #include "lowlevel_strided_loops.h"
 
 #include "array_assign.h"
+
+/* Helpers part */
+NPY_NO_EXPORT int
+raw_array_is_aligned(int ndim, char *data, npy_intp *strides, int alignment)
+{
+    if (alignment > 1) {
+        npy_intp align_check = (npy_intp)data;
+        int idim;
+
+        for (idim = 0; idim < ndim; ++idim) {
+            align_check |= strides[idim];
+        }
+
+        return mpy_is_aligned((void *)align_check, alignment);
+    }
+    else {
+        return 1;
+    }
+}
+
+static int
+PyMicArray_CastRawArrays(int device, npy_intp count,
+                      void *src, void *dst,
+                      npy_intp src_stride, npy_intp dst_stride,
+                      PyArray_Descr *src_dtype, PyArray_Descr *dst_dtype,
+                      int move_references)
+{
+    PyMicArray_StridedUnaryOp *stransfer = NULL;
+    NpyAuxData *transferdata = NULL;
+    int aligned = 1, needs_api = 0;
+
+    /* Make sure the copy is reasonable */
+    if (dst_stride == 0 && count > 1) {
+        PyErr_SetString(PyExc_ValueError,
+                    "NumPy CastRawArrays cannot do a reduction");
+        return NPY_FAIL;
+    }
+    else if (count == 0) {
+        return NPY_SUCCEED;
+    }
+
+    /* Check data alignment */
+    aligned = (((npy_intp)src | src_stride) &
+                                (src_dtype->alignment - 1)) == 0 &&
+              (((npy_intp)dst | dst_stride) &
+                                (dst_dtype->alignment - 1)) == 0;
+
+    /* Get the function to do the casting */
+    if (PyMicArray_GetDTypeTransferFunction(device,
+                        aligned,
+                        src_stride, dst_stride,
+                        src_dtype, dst_dtype,
+                        move_references,
+                        &stransfer, &transferdata,
+                        &needs_api) != NPY_SUCCEED) {
+        return NPY_FAIL;
+    }
+
+    /* Cast */
+    stransfer(dst, dst_stride, src, src_stride, count,
+                src_dtype->elsize, transferdata, device);
+
+    /* Cleanup */
+    NPY_AUXDATA_FREE(transferdata);
+
+    /* If needs_api was set to 1, it may have raised a Python exception */
+    return (needs_api && PyErr_Occurred()) ? NPY_FAIL : NPY_SUCCEED;
+}
 
 /*
  * ====================
@@ -490,12 +560,68 @@ PyArray_PrepareThreeRawArrayIter(int ndim, npy_intp *shape,
  * Returns 0 on success, -1 on failure.
  */
 NPY_NO_EXPORT int
-raw_array_assign_scalar(int ndim, npy_intp *shape,
+raw_array_assign_scalar(int device, int ndim, npy_intp *shape,
         PyArray_Descr *dst_dtype, char *dst_data, npy_intp *dst_strides,
         PyArray_Descr *src_dtype, char *src_data)
 {
-    //TODO: implement
-    return -1;
+    int idim;
+    npy_intp shape_it[NPY_MAXDIMS], dst_strides_it[NPY_MAXDIMS];
+    npy_intp coord[NPY_MAXDIMS];
+
+    PyMicArray_StridedUnaryOp *stransfer = NULL;
+    NpyAuxData *transferdata = NULL;
+    int aligned, needs_api = 0;
+    npy_intp src_itemsize = src_dtype->elsize;
+
+    NPY_BEGIN_THREADS_DEF;
+
+
+    /* Check alignment */
+    aligned = raw_array_is_aligned(ndim, dst_data, dst_strides,
+                                    dst_dtype->alignment);
+    if (!mpy_is_aligned(src_data, src_dtype->alignment)) {
+        aligned = 0;
+    }
+
+    /* Use raw iteration with no heap allocation */
+    if (PyArray_PrepareOneRawArrayIter(
+                    ndim, shape,
+                    dst_data, dst_strides,
+                    &ndim, shape_it,
+                    &dst_data, dst_strides_it) < 0) {
+        return -1;
+    }
+
+    /* Get the function to do the casting */
+    if (PyMicArray_GetDTypeTransferFunction(device, aligned,
+                        0, dst_strides_it[0],
+                        src_dtype, dst_dtype,
+                        0,
+                        &stransfer, &transferdata,
+                        &needs_api) != NPY_SUCCEED) {
+        return -1;
+    }
+
+    if (!needs_api) {
+        npy_intp nitems = 1, i;
+        for (i = 0; i < ndim; i++) {
+            nitems *= shape_it[i];
+        }
+        NPY_BEGIN_THREADS_THRESHOLDED(nitems);
+    }
+
+    NPY_RAW_ITER_START(idim, ndim, coord, shape_it) {
+        /* Process the innermost dimension */
+        stransfer(dst_data, dst_strides_it[0], src_data, 0,
+                    shape_it[0], src_itemsize, transferdata, device);
+    } NPY_RAW_ITER_ONE_NEXT(idim, ndim, coord,
+                            shape_it, dst_data, dst_strides_it);
+
+    NPY_END_THREADS;
+
+    NPY_AUXDATA_FREE(transferdata);
+
+    return (needs_api && PyErr_Occurred()) ? -1 : 0;
 }
 
 /*
@@ -505,14 +631,74 @@ raw_array_assign_scalar(int ndim, npy_intp *shape,
  * Returns 0 on success, -1 on failure.
  */
 NPY_NO_EXPORT int
-raw_array_wheremasked_assign_scalar(int ndim, npy_intp *shape,
+raw_array_wheremasked_assign_scalar(int device, int ndim, npy_intp *shape,
         PyArray_Descr *dst_dtype, char *dst_data, npy_intp *dst_strides,
         PyArray_Descr *src_dtype, char *src_data,
         PyArray_Descr *wheremask_dtype, char *wheremask_data,
         npy_intp *wheremask_strides)
 {
-    //TODO: implement
-    return -1;
+    int idim;
+    npy_intp shape_it[NPY_MAXDIMS], dst_strides_it[NPY_MAXDIMS];
+    npy_intp wheremask_strides_it[NPY_MAXDIMS];
+    npy_intp coord[NPY_MAXDIMS];
+
+    PyMicArray_MaskedStridedUnaryOp *stransfer = NULL;
+    NpyAuxData *transferdata = NULL;
+    int aligned, needs_api = 0;
+    npy_intp src_itemsize = src_dtype->elsize;
+
+    NPY_BEGIN_THREADS_DEF;
+
+    /* Check alignment */
+    aligned = raw_array_is_aligned(ndim, dst_data, dst_strides,
+                                    dst_dtype->alignment);
+    if (!mpy_is_aligned(src_data, src_dtype->alignment)) {
+        aligned = 0;
+    }
+
+    /* Use raw iteration with no heap allocation */
+    if (PyArray_PrepareTwoRawArrayIter(
+                    ndim, shape,
+                    dst_data, dst_strides,
+                    wheremask_data, wheremask_strides,
+                    &ndim, shape_it,
+                    &dst_data, dst_strides_it,
+                    &wheremask_data, wheremask_strides_it) < 0) {
+        return -1;
+    }
+
+    /* Get the function to do the casting */
+    if (PyMicArray_GetMaskedDTypeTransferFunction(aligned,
+                        0, dst_strides_it[0], wheremask_strides_it[0],
+                        src_dtype, dst_dtype, wheremask_dtype,
+                        0,
+                        &stransfer, &transferdata,
+                        &needs_api) != NPY_SUCCEED) {
+        return -1;
+    }
+
+    if (!needs_api) {
+        npy_intp nitems = 1, i;
+        for (i = 0; i < ndim; i++) {
+            nitems *= shape_it[i];
+        }
+        NPY_BEGIN_THREADS_THRESHOLDED(nitems);
+    }
+
+    NPY_RAW_ITER_START(idim, ndim, coord, shape_it) {
+        /* Process the innermost dimension */
+        stransfer(dst_data, dst_strides_it[0], src_data, 0,
+                    (npy_bool *)wheremask_data, wheremask_strides_it[0],
+                    shape_it[0], src_itemsize, transferdata, device);
+    } NPY_RAW_ITER_TWO_NEXT(idim, ndim, coord, shape_it,
+                            dst_data, dst_strides_it,
+                            wheremask_data, wheremask_strides_it);
+
+    NPY_END_THREADS;
+
+    NPY_AUXDATA_FREE(transferdata);
+
+    return (needs_api && PyErr_Occurred()) ? -1 : 0;
 }
 
 /*
@@ -533,10 +719,137 @@ raw_array_wheremasked_assign_scalar(int ndim, npy_intp *shape,
 NPY_NO_EXPORT int
 PyMicArray_AssignRawScalar(PyMicArrayObject *dst,
                         PyArray_Descr *src_dtype, char *src_data,
+                        int src_device,
                         PyMicArrayObject *wheremask,
                         NPY_CASTING casting)
 {
-    //TODO: implement this
+    int allocated_src_data = 0;
+    int device = PyMicArray_DEVICE(dst);
+    int cpu_device = omp_get_initial_device();
+    npy_longlong scalarbuffer[4];
+
+    if (PyMicArray_FailUnlessWriteable(dst, "assignment destination") < 0) {
+        return -1;
+    }
+
+    /* Check the casting rule */
+    if (!can_cast_scalar_to(src_dtype, src_data, src_device,
+                            PyMicArray_DESCR(dst), casting)) {
+        PyObject *errmsg;
+        errmsg = PyUString_FromString("Cannot cast scalar from ");
+        PyUString_ConcatAndDel(&errmsg,
+                PyObject_Repr((PyObject *)src_dtype));
+        PyUString_ConcatAndDel(&errmsg,
+                PyUString_FromString(" to "));
+        PyUString_ConcatAndDel(&errmsg,
+                PyObject_Repr((PyObject *)PyMicArray_DESCR(dst)));
+        PyUString_ConcatAndDel(&errmsg,
+                PyUString_FromFormat(" according to the rule %s",
+                        npy_casting_to_string(casting)));
+        PyErr_SetObject(PyExc_TypeError, errmsg);
+        Py_DECREF(errmsg);
+        return -1;
+    }
+
+    if (src_data == NULL) {
+        return -1;
+    }
+
+    /*
+     * Check whether dst_device is different from src_device
+     * If different, need to transfer data
+     */
+    if (src_device != device) {
+        void *tmp_src_data = target_alloc(src_dtype->elsize, device);
+        if (tmp_src_data == NULL) {
+            PyErr_NoMemory();
+            goto fail;
+        }
+        target_memcpy(tmp_src_data, src_data, src_dtype->elsize,
+                      device, src_device);
+        src_data = tmp_src_data;
+        src_device = device;
+        allocated_src_data = 1;
+    }
+
+    /*
+     * Make a copy of the src data if it's a different dtype than 'dst'
+     * or isn't aligned, and the destination we're copying to has
+     * more than one element. To avoid having to manage object lifetimes,
+     * we also skip this if 'dst' has an object dtype.
+     */
+    if ((!PyArray_EquivTypes(PyMicArray_DESCR(dst), src_dtype) ||
+                !mpy_is_aligned(src_data, src_dtype->alignment)) &&
+                PyMicArray_SIZE(dst) > 1 &&
+                !PyDataType_REFCHK(PyMicArray_DESCR(dst))) {
+        void *tmp_src_data;
+
+        tmp_src_data = target_alloc(PyMicArray_DESCR(dst)->elsize, device);
+        if (tmp_src_data == NULL) {
+            PyErr_NoMemory();
+            goto fail;
+        }
+
+        if (PyMicArray_CastRawArrays(device, 1, src_data, tmp_src_data, 0, 0,
+                            src_dtype, PyMicArray_DESCR(dst), 0) != NPY_SUCCEED) {
+            target_free(tmp_src_data, device);
+            goto fail;
+        }
+
+        if (allocated_src_data) {
+            target_free(src_data, device);
+        } else {
+            allocated_src_data = 1;
+        }
+        /* Replace src_data/src_dtype */
+        src_data = tmp_src_data;
+        src_dtype = PyMicArray_DESCR(dst);
+    }
+
+
+    if (wheremask == NULL) {
+        /* A straightforward value assignment */
+        /* Do the assignment with raw array iteration */
+        if (raw_array_assign_scalar(device,
+                PyMicArray_NDIM(dst), PyMicArray_DIMS(dst),
+                PyMicArray_DESCR(dst), PyMicArray_DATA(dst), PyMicArray_STRIDES(dst),
+                src_dtype, src_data) < 0) {
+            goto fail;
+        }
+    }
+    else {
+        npy_intp wheremask_strides[NPY_MAXDIMS];
+
+        /* Broadcast the wheremask to 'dst' for raw iteration */
+        if (broadcast_strides(PyMicArray_NDIM(dst), PyMicArray_DIMS(dst),
+                    PyMicArray_NDIM(wheremask), PyMicArray_DIMS(wheremask),
+                    PyMicArray_STRIDES(wheremask), "where mask",
+                    wheremask_strides) < 0) {
+            goto fail;
+        }
+
+        /* Do the masked assignment with raw array iteration */
+        if (raw_array_wheremasked_assign_scalar(device,
+                PyMicArray_NDIM(dst), PyMicArray_DIMS(dst),
+                PyMicArray_DESCR(dst), PyMicArray_DATA(dst), PyMicArray_STRIDES(dst),
+                src_dtype, src_data,
+                PyMicArray_DESCR(wheremask), PyMicArray_DATA(wheremask),
+                wheremask_strides) < 0) {
+            goto fail;
+        }
+    }
+
+    if (allocated_src_data) {
+        target_free(src_data, device);
+    }
+
+    return 0;
+
+fail:
+    if (allocated_src_data) {
+        target_free(src_data, device);
+    }
+
     return -1;
 }
 
@@ -743,6 +1056,7 @@ PyMicArray_AssignArrayFromHost(PyMicArrayObject *dst, PyArrayObject *src,
     if (PyArray_NDIM(src) == 0) {
         return PyMicArray_AssignRawScalar(
                             dst, PyArray_DESCR(src), PyArray_DATA(src),
+                            CPU_DEVICE,
                             NULL, casting);
     }
 

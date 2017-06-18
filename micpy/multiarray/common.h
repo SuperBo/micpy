@@ -19,6 +19,8 @@ NPY_NO_EXPORT int PyMicArray_GetNumDevices(void);
 #define CURRENT_DEVICE (PyMicArray_GetCurrentDevice())
 #define DEFAULT_DEVICE (PyMicArray_GetCurrentDevice())
 
+#define CPU_DEVICE (omp_get_initial_device())
+
 /*
  * Define a chunksize for CBLAS. CBLAS counts in integers.
  */
@@ -149,6 +151,9 @@ target_memset(void *ptr, int value, size_t num, int device_num)
 }
 
 #define target_alloc omp_target_alloc
+#define target_malloc omp_target_alloc
 #define target_free omp_target_free
+#define target_memcpy(dst, src, len, dst_dev, src_dev) \
+                omp_target_memcpy(dst, src, len, 0, 0, dst_dev, src_dev)
 
 #endif

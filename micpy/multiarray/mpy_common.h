@@ -1,7 +1,10 @@
 #ifndef _MPY_EXTERNAL_COMMON_H
 #define _MPY_EXTERNAL_COMMON_H
 
+#include <omp.h>
+#include <offload.h>
 #include <numpy/npy_os.h>
+
 
 /* Some usefull macros */
 

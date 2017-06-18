@@ -30,12 +30,6 @@ PyMicArray_GetMaskedDTypeTransferFunction(int aligned,
                             NpyAuxData **out_transferdata,
                             int *out_needs_api);
 
-NPY_NO_EXPORT int
-PyMicArray_CastRawArrays(npy_intp count,
-                      char *src, char *dst,
-                      npy_intp src_stride, npy_intp dst_stride,
-                      PyArray_Descr *src_dtype, PyArray_Descr *dst_dtype,
-                      int move_references);
 
 NPY_NO_EXPORT int
 PyMicArray_PrepareOneRawArrayIter(int ndim, npy_intp *shape,
