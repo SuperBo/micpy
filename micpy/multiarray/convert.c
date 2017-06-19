@@ -94,23 +94,16 @@ PyMicArray_FillWithScalar(PyMicArrayObject *arr, PyObject *obj)
     PyArray_Descr *dtype = NULL;
     npy_longlong value_buffer[4];
     char *value = NULL;
-    int retcode = 0;
+    int retcode = 0, device = CPU_DEVICE;
 
     /*
      * If 'arr' is an object array, copy the object as is unless
      * 'obj' is a zero-dimensional array, in which case we copy
      * the element in that array instead.
      */
-    if (PyMicArray_DESCR(arr)->type_num == NPY_OBJECT &&
-                        !(PyMicArray_Check(obj) &&
-                          PyMicArray_NDIM((PyMicArrayObject *)obj) == 0)) {
-        //TODO(superbo): support object?
-        value = (char *)&obj;
-
-        dtype = PyArray_DescrFromType(NPY_OBJECT);
-        if (dtype == NULL) {
-            return -1;
-        }
+    if (PyMicArray_DESCR(arr)->type_num == NPY_OBJECT) {
+        //TODO(superbo): print error here
+        return -1;
     }
     /* NumPy scalar */
     else if (PyArray_IsScalar(obj, Generic)) {
@@ -123,6 +116,20 @@ PyMicArray_FillWithScalar(PyMicArrayObject *arr, PyObject *obj)
             Py_DECREF(dtype);
             return -1;
         }
+    }
+    /* MicArray */
+    else if (PyMicArray_Check(obj)) {
+        PyMicArrayObject *src_arr = (PyMicArrayObject *) obj;
+        if (PyMicArray_NDIM(src_arr) != 0) {
+            PyErr_SetString(PyExc_ValueError,
+                    "Input object to FillWithScalar is not a scalar");
+            return -1;
+        }
+
+        value = PyMicArray_BYTES(src_arr);
+        device = PyMicArray_DEVICE(src_arr);
+        dtype = PyMicArray_DESCR(src_arr);
+        Py_INCREF(dtype);
     }
     /* Python boolean */
     else if (PyBool_Check(obj)) {
@@ -204,9 +211,8 @@ PyMicArray_FillWithScalar(PyMicArrayObject *arr, PyObject *obj)
     /* Use the value pointer we got if possible */
     if (value != NULL) {
         /* TODO: switch to SAME_KIND casting */
-        //TODO: distinguise CPU memory and MIC memory
         retcode = PyMicArray_AssignRawScalar(arr, dtype, value,
-                                CPU_DEVICE, NULL, NPY_UNSAFE_CASTING);
+                                device, NULL, NPY_UNSAFE_CASTING);
         Py_DECREF(dtype);
         return retcode;
     }
