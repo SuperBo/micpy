@@ -146,8 +146,6 @@ static void
         char *dst = (char *) _dst;
         char *src = (char *) _src;
 #if @is_aligned@
-            __assume_aligned(dst, _ALIGN(@type@));
-            __assume_aligned(src, _ALIGN(@type@));
 
         /* aligned copy and swap */
 #  if @elsize@ != 16
@@ -222,11 +220,6 @@ static NPY_GCC_OPT_3 void
     {
         char *dst = (char *) _dst;
         char *src = (char *) _src;
-
-#if @is_aligned@ && @elsize@ != 16
-        __assume_aligned(dst, _ALIGN(@type@));
-        __assume_aligned(src, _ALIGN(@type@));
-#endif
 
 #if @elsize@ != 16
 #  if !(@elsize@ == 1 && @dst_contig@)
@@ -857,15 +850,6 @@ static NPY_GCC_OPT_3 void
     {
         char *dst = (char *) _dst;
         char *src = (char *) _src;
-
-#if @aligned@
-#  if !@is_complex1@
-        __assume_aligned(_src, _ALIGN(_TYPE1));
-#  endif
-#  if !@is_complex2@
-        __assume_aligned(_dst, _ALIGN(_TYPE2));
-#  endif
-#endif
 
 #if @is_complex1@
         _TYPE1 src_value[2];

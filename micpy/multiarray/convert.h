@@ -3,7 +3,11 @@
 
 NPY_NO_EXPORT int
 PyMicArray_AssignZero(PyMicArrayObject *dst,
-                   PyMicArrayObject *wheremask);
+                      PyMicArrayObject *wheremask);
+
+NPY_NO_EXPORT int
+PyMicArray_AssignOne(PyMicArrayObject *dst,
+                     PyMicArrayObject *wheremask);
 
 NPY_NO_EXPORT PyObject *
 PyMicArray_NewCopy(PyMicArrayObject *obj, NPY_ORDER order);

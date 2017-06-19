@@ -557,6 +557,59 @@ fail:
 }
 
 static PyObject *
+array_ones(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
+{
+    static char *kwlist[] = {"shape","dtype","order","device",NULL};
+    PyArray_Descr *typecode = NULL;
+    PyArray_Dims shape = {NULL, 0};
+    NPY_ORDER order = NPY_CORDER;
+    npy_bool is_f_order;
+    int device = DEFAULT_DEVICE;
+    PyMicArrayObject *ret = NULL;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|O&O&O&", kwlist,
+                &PyArray_IntpConverter, &shape,
+                &PyArray_DescrConverter, &typecode,
+                &PyArray_OrderConverter, &order,
+                &PyMicArray_DeviceConverter, &device)) {
+        goto fail;
+    }
+
+    switch (order) {
+        case NPY_CORDER:
+            is_f_order = NPY_FALSE;
+            break;
+        case NPY_FORTRANORDER:
+            is_f_order = NPY_TRUE;
+            break;
+        default:
+            PyErr_SetString(PyExc_ValueError,
+                            "only 'C' or 'F' order is permitted");
+            goto fail;
+    }
+
+    ret = (PyMicArrayObject *)PyMicArray_Empty(device, shape.len, shape.ptr,
+                                            typecode, is_f_order);
+
+    PyDimMem_FREE(shape.ptr);
+
+    if (ret != NULL) {
+        if (PyMicArray_AssignOne(ret, NULL) < 0) {
+            PyErr_SetString(PyExc_RuntimeError, "failed to set array to one");
+            Py_DECREF(ret);
+            return NULL;
+        }
+    }
+
+    return (PyObject *)ret;
+
+fail:
+    Py_XDECREF(typecode);
+    PyDimMem_FREE(shape.ptr);
+    return NULL;
+}
+
+static PyObject *
 array_count_nonzero(PyObject *NPY_UNUSED(self), PyObject *args, PyObject *kwds)
 {
     //TODO: implement
@@ -828,6 +881,9 @@ static struct PyMethodDef array_module_methods[] = {
         (PyCFunction)array_arange,
         METH_VARARGS|METH_KEYWORDS, NULL},
     */
+    {"ones",
+        (PyCFunction)array_ones,
+        METH_VARARGS|METH_KEYWORDS, NULL},
     {"zeros",
         (PyCFunction)array_zeros,
         METH_VARARGS|METH_KEYWORDS, NULL},

@@ -250,7 +250,7 @@ PyMicArray_FillWithScalar(PyMicArrayObject *arr, PyObject *obj)
  */
 NPY_NO_EXPORT int
 PyMicArray_AssignZero(PyMicArrayObject *dst,
-                   PyMicArrayObject *wheremask)
+                      PyMicArrayObject *wheremask)
 {
     npy_bool value;
     PyArray_Descr *bool_dtype;
@@ -280,7 +280,7 @@ PyMicArray_AssignZero(PyMicArrayObject *dst,
  */
 NPY_NO_EXPORT int
 PyMicArray_AssignOne(PyMicArrayObject *dst,
-                  PyMicArrayObject *wheremask)
+                     PyMicArrayObject *wheremask)
 {
     npy_bool value;
     PyArray_Descr *bool_dtype;
