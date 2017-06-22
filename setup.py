@@ -101,6 +101,9 @@ def configuration(parent_package='', top_path=None):
     add_mpymath_lib(config)
     add_umath_ext(config)
 
+    config.add_subpackage('random',
+                          subpackage_path=join('micpy', 'random'))
+
     return config
 
 
