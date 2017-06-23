@@ -589,9 +589,7 @@ array_imag_set(PyMicArrayObject *self, PyObject *val)
 static PyObject *
 array_transpose_get(PyMicArrayObject *self)
 {
-    //TODO: implement this
-    return NULL;
-    //return PyMicArray_Transpose(self, NULL);
+    return PyMicArray_Transpose(self, NULL);
 }
 
 /* If this is None, no function call is made
@@ -667,12 +665,10 @@ NPY_NO_EXPORT PyGetSetDef array_getsetlist[] = {
         (getter)array_ctypes_get,
         NULL,
         NULL, NULL},*/
-    /*TODO(superbo): enable when implement transpose
     {"T",
         (getter)array_transpose_get,
         NULL,
         NULL, NULL},
-    */
     /*TODO: keep or delete ?
     {"__array_interface__",
         (getter)array_interface_get,

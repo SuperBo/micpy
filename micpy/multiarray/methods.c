@@ -1536,11 +1536,11 @@ NPY_NO_EXPORT PyMethodDef array_methods[] = {
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"trace",
         (PyCFunction)array_trace,
-        METH_VARARGS | METH_KEYWORDS, NULL},
+        METH_VARARGS | METH_KEYWORDS, NULL},*/
     {"transpose",
         (PyCFunction)array_transpose,
         METH_VARARGS, NULL},
-    {"var",
+    /*{"var",
         (PyCFunction)array_variance,
         METH_VARARGS | METH_KEYWORDS, NULL},*/
     {"view",

@@ -329,8 +329,7 @@ _putzero(int device, char *optr, PyObject *zero, PyArray_Descr *dtype)
 {
     if (!PyDataType_FLAGCHK(dtype, NPY_ITEM_REFCOUNT)) {
         npy_intp num = dtype->elsize;
-        #pragma omp target device(device) map(to:optr,num)
-        memset(optr, 0, num);
+        target_memset(optr, 0, num, device);
     }
     else if (PyDataType_HASFIELDS(dtype)) {
         PyObject *key, *value, *title = NULL;
@@ -345,15 +344,6 @@ _putzero(int device, char *optr, PyObject *zero, PyArray_Descr *dtype)
                 return;
             }
             _putzero(device, optr + offset, zero, new);
-        }
-    }
-    else {
-        //TODO: putzero object support or delte???
-        npy_intp i;
-        for (i = 0; i < dtype->elsize / sizeof(zero); i++) {
-            Py_INCREF(zero);
-            NPY_COPY_PYOBJECT_PTR(optr, &zero);
-            optr += sizeof(zero);
         }
     }
     return;
@@ -695,7 +685,7 @@ PyMicArray_SwapAxes(PyMicArrayObject *ap, int a1, int a2)
 NPY_NO_EXPORT PyObject *
 PyMicArray_Transpose(PyMicArrayObject *ap, PyArray_Dims *permute)
 {
-    npy_intp *axes, axis;
+    npy_intp *axes;
     npy_intp i, n;
     npy_intp permutation[NPY_MAXDIMS], reverse_permutation[NPY_MAXDIMS];
     PyMicArrayObject *ret = NULL;
@@ -719,13 +709,8 @@ PyMicArray_Transpose(PyMicArrayObject *ap, PyArray_Dims *permute)
             reverse_permutation[i] = -1;
         }
         for (i = 0; i < n; i++) {
-            axis = axes[i];
-            if (axis < 0) {
-                axis = PyMicArray_NDIM(ap) + axis;
-            }
-            if (axis < 0 || axis >= PyMicArray_NDIM(ap)) {
-                PyErr_SetString(PyExc_ValueError,
-                                "invalid axis for this array");
+            int axis = axes[i];
+            if (check_and_adjust_axis(&axis, PyMicArray_NDIM(ap)) < 0) {
                 return NULL;
             }
             if (reverse_permutation[axis] != -1) {
