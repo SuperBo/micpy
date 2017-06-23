@@ -557,19 +557,19 @@ fail:
 }
 
 static PyObject *
-array_ones(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
+array_zeros_like(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
 {
-    static char *kwlist[] = {"shape","dtype","order","device",NULL};
-    PyArray_Descr *typecode = NULL;
-    PyArray_Dims shape = {NULL, 0};
+    static char *kwlist[] = {"prototype","dtype","order","device",NULL};
+    PyArrayObject *prototype = NULL;
+    PyArray_Descr *dtype = NULL;
     NPY_ORDER order = NPY_CORDER;
-    npy_bool is_f_order;
-    int device = DEFAULT_DEVICE;
+    npy_bool is_f_order = NPY_FALSE;
     PyMicArrayObject *ret = NULL;
+    int device = DEFAULT_DEVICE;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|O&O&O&", kwlist,
-                &PyArray_IntpConverter, &shape,
-                &PyArray_DescrConverter, &typecode,
+                &PyMicArray_GeneralConverter, &prototype,
+                &PyArray_DescrConverter2, &dtype,
                 &PyArray_OrderConverter, &order,
                 &PyMicArray_DeviceConverter, &device)) {
         goto fail;
@@ -588,11 +588,32 @@ array_ones(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
             goto fail;
     }
 
-    ret = (PyMicArrayObject *)PyMicArray_Empty(device, shape.len, shape.ptr,
-                                            typecode, is_f_order);
+    /* If no override data type, use the one from the prototype */
+    if (dtype == NULL) {
+        dtype = PyArray_DESCR(prototype);
+        Py_INCREF(dtype);
+    }
 
-    PyDimMem_FREE(shape.ptr);
+    /* steals the reference to dtype if it's not NULL */
+    ret = (PyMicArrayObject *)PyMicArray_Zeros(device, PyArray_NDIM(prototype),
+                                                PyArray_DIMS(prototype),
+                                                dtype, is_f_order);
+    Py_DECREF(prototype);
 
+    return (PyObject *)ret;
+
+fail:
+    Py_XDECREF(prototype);
+    Py_XDECREF(dtype);
+    return NULL;
+}
+
+static PyObject *
+array_ones(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
+{
+    PyMicArrayObject *ret = NULL;
+
+    ret = (PyMicArrayObject *) array_empty(NULL, args, kwds);
     if (ret != NULL) {
         if (PyMicArray_AssignOne(ret, NULL) < 0) {
             PyErr_SetString(PyExc_RuntimeError, "failed to set array to one");
@@ -602,11 +623,23 @@ array_ones(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
     }
 
     return (PyObject *)ret;
+}
 
-fail:
-    Py_XDECREF(typecode);
-    PyDimMem_FREE(shape.ptr);
-    return NULL;
+static PyObject *
+array_ones_like(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
+{
+    PyMicArrayObject *ret;
+
+    ret = (PyMicArrayObject *) array_empty_like(NULL, args, kwds);
+    if (ret != NULL) {
+        if (PyMicArray_AssignOne(ret, NULL) < 0) {
+            PyErr_SetString(PyExc_RuntimeError, "failed to set array to one");
+            Py_DECREF(ret);
+            return NULL;
+        }
+    }
+
+    return (PyObject *)ret;
 }
 
 static PyObject *
@@ -884,8 +917,14 @@ static struct PyMethodDef array_module_methods[] = {
     {"ones",
         (PyCFunction)array_ones,
         METH_VARARGS|METH_KEYWORDS, NULL},
+    {"ones_like",
+        (PyCFunction)array_ones_like,
+        METH_VARARGS|METH_KEYWORDS, NULL},
     {"zeros",
         (PyCFunction)array_zeros,
+        METH_VARARGS|METH_KEYWORDS, NULL},
+    {"zeros_like",
+        (PyCFunction)array_zeros_like,
         METH_VARARGS|METH_KEYWORDS, NULL},
     {"count_nonzero",
         (PyCFunction)array_count_nonzero,
