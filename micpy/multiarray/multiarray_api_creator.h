@@ -64,6 +64,7 @@
         (void *) &MpyIter_GetOffInnerLoopSizePtr,\
         (void *) &MpyIter_GetOffInnerStrideArray,\
         (void *) &PyMicArray_SetNumericOps,\
+        &PyMicArray_FromScalar,\
         NULL\
     }
 

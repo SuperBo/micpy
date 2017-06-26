@@ -90,7 +90,7 @@ static int _import_pymicarray() {
     (*(PyObject * (*)(int, int, npy_intp *, PyArray_Descr *, int)) \
      PyMicArray_API[5])
 #define PyMicArray_FromAny \
-    (*(PyObject * (*)(PyObject *, PyArray_Descr *, int, int, int , PyObject *)) \
+    (*(PyObject * (*)(int, PyObject *, PyArray_Descr *, int, int, int , PyObject *)) \
      PyMicArray_API[6])
 #define PyMicArray_FromArray \
     (*(PyObject *(*)(PyArrayObject *, PyArray_Descr *, int, int)) \
@@ -238,4 +238,7 @@ static int _import_pymicarray() {
 #define PyMicArray_SetNumericOps \
     (*(int (*)(PyObject *)) \
      PyMicArray_API[53])
+#define PyMicArray_FromScalar \
+    (*(PyObject * (*)(PyObject *, PyArray_Descr *, int)) \
+     PyMicArray_API[54])
 #endif

@@ -11,7 +11,11 @@
 #define _MICARRAYMODULE
 #include "arrayobject.h"
 #include "scalar.h"
-#include <offload.h>
+#include "common.h"
+#include "creators.h"
+#include "mpyndarraytypes.h"
+#include "arraytypes.h"
+#include "convert_datatype.h"
 
 NPY_NO_EXPORT void *
 scalar_value(PyObject *scalar, PyArray_Descr *descr)
@@ -157,7 +161,7 @@ PyMicArray_ToScalar(void *data, PyMicArrayObject *obj)
 
     /* Transfer scalar from device to host */
     if (omp_target_memcpy(host_data, data, elsize, 0, 0,
-                omp_get_initial_device(), PyMicArray_DEVICE(obj)) != 0) {
+                CPU_DEVICE, PyMicArray_DEVICE(obj)) != 0) {
         return NULL;
     }
 
@@ -192,4 +196,76 @@ PyMicArray_Return(PyMicArrayObject *mp)
     else {
         return (PyObject *)mp;
     }
+}
+
+/*NUMPY_API
+ * Get 0-dim array from scalar
+ *
+ * 0-dim array from array-scalar object
+ * always contains a copy of the data
+ * unless outcode is NULL, it is of void type and the referrer does
+ * not own it either.
+ *
+ * steals reference to outcode
+ */
+NPY_NO_EXPORT PyObject *
+PyMicArray_FromScalar(PyObject *scalar, PyArray_Descr *outcode, int device)
+{
+    PyArray_Descr *typecode;
+    PyMicArrayObject *r;
+    char *memptr;
+    PyObject *ret;
+
+    /* convert to 0-dim array of scalar typecode */
+    typecode = PyArray_DescrFromScalar(scalar);
+    if (typecode == NULL) {
+        return NULL;
+    }
+    if (!PyDataType_ISNUMBER(typecode)){
+        Py_DECREF(typecode);
+        return NULL;
+    }
+
+    /* Need to INCREF typecode because PyArray_NewFromDescr steals a
+     * reference below and we still need to access typecode afterwards. */
+    Py_INCREF(typecode);
+    r = (PyMicArrayObject *)PyMicArray_NewFromDescr(device,
+                                    &PyMicArray_Type,
+                                    typecode,
+                                    0, NULL,
+                                    NULL, NULL, 0, NULL);
+    if (r == NULL) {
+        Py_DECREF(typecode); Py_XDECREF(outcode);
+        return NULL;
+    }
+    if (PyDataType_FLAGCHK(typecode, NPY_USE_SETITEM)) {
+        PyMicArray_SetItemFunc *setitem = PyMicArray_GetArrFuncs(typecode->type_num)->setitem;
+        if (setitem == NULL || setitem(scalar, PyMicArray_DATA(r), r) < 0) {
+            Py_DECREF(typecode); Py_XDECREF(outcode); Py_DECREF(r);
+            return NULL;
+        }
+    }
+    else {
+        memptr = scalar_value(scalar, typecode);
+
+        target_memcpy(PyMicArray_DATA(r), memptr, PyMicArray_ITEMSIZE(r),
+                        PyMicArray_DEVICE(r), CPU_DEVICE);
+    }
+
+    if (outcode == NULL) {
+        Py_DECREF(typecode);
+        return (PyObject *)r;
+    }
+    if (PyArray_EquivTypes(outcode, typecode)) {
+        if (!PyTypeNum_ISEXTENDED(typecode->type_num)
+                || (outcode->elsize == typecode->elsize)) {
+            Py_DECREF(typecode); Py_DECREF(outcode);
+            return (PyObject *)r;
+        }
+    }
+
+    /* cast if necessary to desired output typecode */
+    ret = PyMicArray_CastToType((PyMicArrayObject *)r, outcode, 0);
+    Py_DECREF(typecode); Py_DECREF(r);
+    return ret;
 }
