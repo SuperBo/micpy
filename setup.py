@@ -4,10 +4,26 @@ from __future__ import absolute_import, print_function
 import os.path
 from os.path import join
 from distutils.dep_util import newer
+import sys
+
+if sys.version_info[:2] < (2, 7) or (3, 0) <= sys.version_info[:2] < (3, 4):
+    raise RuntimeError("Python version 2.7 or >= 3.4 required.")
+
+if sys.version_info[0] >= 3:
+    import builtins
+else:
+    import __builtin__ as builtins
+
+# This is a bit hackish: we are setting a global variable so that the main
+# micpy __init__ can detect if it is being loaded by the setup routine, to
+# avoid attempting to load components that aren't built yet.  While ugly, it's
+# a lot more robust than what was previously being ussed.
+builtins.__MICPY_SETUP__ = True
 
 from micpy.distutils.build_offload import build_ext as build_ext_offload
 from micpy.distutils.build_offload_lib import build_clib as build_clib_offload
 from micpy.code_generators import generate_umath as gen_umath
+
 
 numpy_private_dir = join('numpy', 'private')
 multiarray_dir = join('micpy', 'multiarray')
@@ -119,3 +135,4 @@ if __name__ == '__main__':
           configuration=configuration,
           cmdclass={'build_ext': build_ext_offload,
                     'build_clib': build_clib_offload})
+    del builtins.__MICPY_SETUP__

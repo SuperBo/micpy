@@ -1,14 +1,13 @@
-#from . import device
-#from .ndarray import ndarray
-from .util import get_array_module
-#from .core import *
+from __future__ import division, absolute_import, print_function
 
-#from .math.numeric import vdot, dot, matmul_transA, matmul_transB
-#from .math.numeric import sum, argmax, argmin
+try:
+    __MICPY_SETUP__
+except NameError:
+    __MICPY_SETUP__ = False
 
-#from .statistics import random
-
-#from .dnn import grad_decrease
-#from .dnn import relu, relu_grad
-#from .dnn import sigmoid, sigmoid_grad
-#from .dnn import tanh, tanh_grad
+if __MICPY_SETUP__:
+    import sys
+    sys.stderr.write('Running from micpy source directory.\n')
+else:
+    from .multiarray import *
+    from .umath import *
