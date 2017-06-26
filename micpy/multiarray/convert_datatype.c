@@ -12,6 +12,7 @@
 #include "arraytypes.h"
 #include "mpy_common.h"
 #include "common.h"
+#include "creators.h"
 
 /* Converts a type number from unsigned to signed */
 static int
@@ -409,8 +410,6 @@ PyMicArray_CanCastArrayTo(PyMicArrayObject *arr, PyArray_Descr *to,
     return PyArray_CanCastTypeTo(from, to, casting);
 }
 
-
-
 /*
  * This function calls Py_DECREF on flex_dtype, and replaces it with
  * a new dtype that has been adapted based on the values in data_dtype
@@ -435,6 +434,46 @@ PyMicArray_AdaptFlexibleDType(PyObject *data_obj, PyArray_Descr *data_dtype,
      * might enable in the future
      */
     return;
+}
+
+/*NUMPY_API
+ * For backward compatibility
+ *
+ * Cast an array using typecode structure.
+ * steals reference to dtype --- cannot be NULL
+ *
+ * This function always makes a copy of arr, even if the dtype
+ * doesn't change.
+ */
+NPY_NO_EXPORT PyObject *
+PyMicArray_CastToType(PyMicArrayObject *arr, PyArray_Descr *dtype, int is_f_order)
+{
+    PyMicArrayObject *out;
+
+    /* If the requested dtype is flexible, adapt it */
+    PyMicArray_AdaptFlexibleDType((PyObject *)arr, PyMicArray_DESCR(arr), &dtype);
+    if (dtype == NULL) {
+        return NULL;
+    }
+
+    out = (PyMicArrayObject *)PyMicArray_NewFromDescr(PyMicArray_DEVICE(arr),
+                               Py_TYPE(arr), dtype,
+                               PyMicArray_NDIM(arr),
+                               PyMicArray_DIMS(arr),
+                               NULL, NULL,
+                               is_f_order,
+                               (PyObject *)arr);
+
+    if (out == NULL) {
+        return NULL;
+    }
+
+    if (PyMicArray_CopyInto(out, arr) < 0) {
+        Py_DECREF(out);
+        return NULL;
+    }
+
+    return (PyObject *)out;
 }
 
 NPY_NO_EXPORT int

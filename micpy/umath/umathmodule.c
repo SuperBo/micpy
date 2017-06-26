@@ -267,17 +267,16 @@ PyMODINIT_FUNC initumath(void)
     PyDict_SetItemString(d, "divide", s);
 #endif
 
-    //s = PyDict_GetItemString(d, "conjugate");
-    //s2 = PyDict_GetItemString(d, "remainder");
+    s = PyDict_GetItemString(d, "conjugate");
+    s2 = PyDict_GetItemString(d, "remainder");
     /* Setup the array object's numerical structures with appropriate
        ufuncs in d*/
     /* TODO: finish this work */
-    //PyArray_SetNumericOps(d);
+    PyMicArray_SetNumericOps(d);
 
-    //PyDict_SetItemString(d, "conj", s);
-    //PyDict_SetItemString(d, "mod", s2);
+    PyDict_SetItemString(d, "conj", s);
+    PyDict_SetItemString(d, "mod", s2);
 
-    /* TODO: finish this work */
     //initscalarmath(m);
 
     if (!intern_strings()) {

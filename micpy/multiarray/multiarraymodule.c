@@ -32,7 +32,7 @@
 /* Internal APIs */
 #include "arrayobject.h"
 //#include "calculation.h"
-//#include "number.h"
+#include "number.h"
 //#include "numpymemoryview.h"
 #include "mpyndarraytypes.h"
 #include "arraytypes.h"

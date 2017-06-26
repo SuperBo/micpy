@@ -39,6 +39,7 @@
 #include "methods.h"
 #include "getset.h"
 #include "alloc.h"
+#include "number.h"
 
 /* NUMPY_API
  * Compute the size of an array (in number of items)
@@ -641,7 +642,7 @@ NPY_NO_EXPORT PyTypeObject PyMicArray_Type = {
     0,                                          /* tp_compare */
 #endif
     (reprfunc)array_repr,                       /* tp_repr */
-    0, /*TODO:&array_as_number, */              /* tp_as_number */
+    &array_as_number,                            /* tp_as_number */
     0,                                          /* tp_as_sequence */
     0,                                          /* tp_as_mapping */
     /*

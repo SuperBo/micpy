@@ -46,6 +46,102 @@
  *****************************************************************************
  */
 
+static double
+MyPyFloat_AsDouble(PyObject *obj)
+{
+    double ret = 0;
+    PyObject *num;
+
+    if (obj == Py_None) {
+        return NPY_NAN;
+    }
+    num = PyNumber_Float(obj);
+    if (num == NULL) {
+        return NPY_NAN;
+    }
+    ret = PyFloat_AsDouble(num);
+    Py_DECREF(num);
+    return ret;
+}
+
+static npy_half
+MyPyFloat_AsHalf(PyObject *obj)
+{
+    return mpy_double_to_half(MyPyFloat_AsDouble(obj));
+}
+
+static PyObject *
+MyPyFloat_FromHalf(npy_half h)
+{
+    return PyFloat_FromDouble(mpy_half_to_double(h));
+}
+
+/* Handle case of assigning from an array scalar in setitem */
+static int
+convert_to_scalar_and_retry(PyObject *op, void *ov, void *vap,
+                      int (*setitem)(PyObject *op, void *ov, void *vap))
+{
+    PyObject *temp;
+
+    assert(PyArray_IsZeroDim(op));
+    temp = PyArray_ToScalar(PyArray_BYTES((PyArrayObject *)op),
+                                      (PyArrayObject *)op);
+    if (temp == NULL) {
+        return -1;
+    }
+    else {
+        int res = setitem(temp, ov, vap);
+        Py_DECREF(temp);
+        return res;
+    }
+}
+
+
+/**begin repeat
+ *
+ * #Type = Long, LongLong#
+ * #type = npy_long, npy_longlong#
+ */
+static @type@
+MyPyLong_As@Type@ (PyObject *obj)
+{
+    @type@ ret;
+    PyObject *num = PyNumber_Long(obj);
+
+    if (num == NULL) {
+        return -1;
+    }
+    ret = PyLong_As@Type@(num);
+    Py_DECREF(num);
+    return ret;
+}
+
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #Type = Long, LongLong#
+ * #type = npy_ulong, npy_ulonglong#
+ */
+static @type@
+MyPyLong_AsUnsigned@Type@ (PyObject *obj)
+{
+    @type@ ret;
+    PyObject *num = PyNumber_Long(obj);
+
+    if (num == NULL) {
+        return -1;
+    }
+    ret = PyLong_AsUnsigned@Type@(num);
+    if (PyErr_Occurred()) {
+        PyErr_Clear();
+        ret = PyLong_As@Type@(num);
+    }
+    Py_DECREF(num);
+    return ret;
+}
+
+/**end repeat**/
 
 /*
  *****************************************************************************
@@ -53,6 +149,288 @@
  *****************************************************************************
  */
 
+/*Just use naive memcpy to copy data
+ *TODO: investigate why numpy use copyandswap here?
+ *adapt to copyandswap if needed
+ */
+
+/**begin repeat
+ *
+ * #TYPE = BOOL, BYTE, UBYTE, SHORT, USHORT, INT, LONG, UINT, ULONG,
+ *         LONGLONG, ULONGLONG, HALF, FLOAT, DOUBLE#
+ * #func1 = PyBool_FromLong, PyInt_FromLong*6, PyLong_FromUnsignedLong*2,
+ *          PyLong_FromLongLong, PyLong_FromUnsignedLongLong,
+ *          MyPyFloat_FromHalf, PyFloat_FromDouble*2#
+ * #func2 = PyObject_IsTrue, MyPyLong_AsLong*6, MyPyLong_AsUnsignedLong*2,
+ *          MyPyLong_AsLongLong, MyPyLong_AsUnsignedLongLong,
+ *          MyPyFloat_AsHalf, MyPyFloat_AsDouble*2#
+ * #type = npy_bool,
+ *         npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int,
+ *         npy_long, npy_uint, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_half, npy_float, npy_double#
+ * #type1 = long*7, npy_ulong*2, npy_longlong, npy_ulonglong,
+ *          npy_half, npy_float, npy_double#
+ * #kind = Bool, Byte, UByte, Short, UShort, Int, Long, UInt, ULong,
+ *         LongLong, ULongLong, Half, Float, Double#
+*/
+static PyObject *
+@TYPE@_getitem(void *input, void *vap)
+{
+    PyMicArrayObject *ap = vap;
+    int device;
+    @type@ t1;
+
+    if (ap == NULL) {
+        return NULL;
+    }
+
+    device = PyMicArray_DEVICE(ap);
+    target_memcpy(&t1, input, sizeof(@type@),
+                    omp_get_initial_device(), device);
+
+    return @func1@((@type1@)t1);
+}
+
+static int
+@TYPE@_setitem(PyObject *op, void *ov, void *vap)
+{
+    PyMicArrayObject *ap = vap;
+    int device;
+    @type@ temp;  /* ensures alignment */
+
+    if (PyArray_IsScalar(op, @kind@)) {
+        temp = ((Py@kind@ScalarObject *)op)->obval;
+    }
+    else {
+        temp = (@type@)@func2@(op);
+    }
+    if (PyErr_Occurred()) {
+        PyObject *type, *value, *traceback;
+        PyErr_Fetch(&type, &value, &traceback);
+        if (PySequence_Check(op) && !PyString_Check(op) &&
+                                    !PyUnicode_Check(op)) {
+            PyErr_SetString(PyExc_ValueError,
+                    "setting an array element with a sequence.");
+            Py_DECREF(type);
+            Py_XDECREF(value);
+            Py_XDECREF(traceback);
+        }
+        else {
+            PyErr_Restore(type, value, traceback);
+        }
+        return -1;
+    }
+    if (ap == NULL){
+        return -1;
+    }
+    device = PyMicArray_DEVICE(ap);
+    target_memcpy(ov, &temp, sizeof(@type@),
+                    device, omp_get_initial_device());
+
+    return 0;
+}
+
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #TYPE = CFLOAT, CDOUBLE#
+ * #type = npy_float, npy_double#
+ */
+static PyObject *
+@TYPE@_getitem(void *input, void *vap)
+{
+    PyMicArrayObject *ap = vap;
+    int device;
+    @type@ t1, t2;
+
+    if ((ap == NULL) || PyMicArray_ISBEHAVED_RO(ap)) {
+        return NULL;
+
+    }
+
+    device = PyMicArray_DEVICE(ap);
+    #pragma omp target device(device) map(from: t1, t2)
+    {
+        t1 = ((@type@ *)input)[0];
+        t2 = ((@type@ *)input)[1];
+    }
+
+    return PyComplex_FromDoubles((double)t1, (double)t2);
+}
+
+/**end repeat**/
+
+
+/**begin repeat
+ *
+ * #NAME = CFLOAT, CDOUBLE, CLONGDOUBLE#
+ * #type = npy_cfloat, npy_cdouble, npy_clongdouble#
+ * #ftype = npy_float, npy_double, npy_longdouble#
+ * #kind = CFloat, CDouble, CLongDouble#
+ */
+static int
+@NAME@_setitem(PyObject *op, void *ov, void *vap)
+{
+    PyMicArrayObject *ap = vap;
+    int device;
+    Py_complex oop;
+    PyObject *op2;
+    @type@ temp;
+    int rsize;
+
+    if (ap == NULL) {
+        return -1;
+    }
+
+    if (PyArray_IsScalar(op, @kind@)){
+        temp = ((Py@kind@ScalarObject *)op)->obval;
+    }
+    else {
+        if (PyArray_IsZeroDim(op)) {
+            /*
+             * TODO: Elsewhere in this file we use PyArray_ToScalar. Is this
+             *       better or worse? Possibly an optimization.
+             */
+            op2 = PyArray_DESCR((PyArrayObject *)op)->f->getitem(
+                                    PyArray_BYTES((PyArrayObject *)op),
+                                    (PyArrayObject *)op);
+        }
+        else {
+            op2 = op;
+            Py_INCREF(op);
+        }
+        if (op2 == Py_None) {
+            oop.real = NPY_NAN;
+            oop.imag = NPY_NAN;
+        }
+        else {
+            oop = PyComplex_AsCComplex (op2);
+        }
+        Py_DECREF(op2);
+        if (PyErr_Occurred()) {
+            return -1;
+        }
+        temp.real = (@ftype@) oop.real;
+        temp.imag = (@ftype@) oop.imag;
+    }
+
+    rsize = sizeof(@ftype@);
+    target_memcpy(ov, &temp, rsize*2,
+                    device, omp_get_initial_device());
+    if (!PyMicArray_ISNOTSWAPPED(ap)) {
+        byte_swap_vector(ov, 2, sizeof(@ftype@));
+    }
+    return 0;
+}
+
+/**end repeat**/
+
+static NPY_INLINE npy_longdouble
+string_to_long_double(PyObject*op)
+{
+    char *s;
+    char *end;
+    npy_longdouble temp;
+    PyObject* b;
+
+    if (PyUnicode_Check(op)) {
+        b = PyUnicode_AsUTF8String(op);
+        if (!b) {
+            return 0;
+        }
+    }
+    else {
+        b = op;
+        Py_XINCREF(b);
+    }
+    s = PyBytes_AsString(b);
+    if (s) {
+        errno = 0;
+        temp = NumPyOS_ascii_strtold(s, &end);
+        if (end==s || *end) {
+            PyErr_Format(PyExc_ValueError,
+                         "invalid literal for long double: %s",
+                         s);
+            Py_XDECREF(b);
+            return 0;
+        }
+        else if (errno) {
+            PyErr_Format(PyExc_ValueError,
+                         "invalid literal for long double: %s (%s)",
+                         s,
+                         strerror(errno));
+            Py_XDECREF(b);
+            return 0;
+        }
+        Py_XDECREF(b);
+    }
+    else {
+        /* Probably wasn't a string, try converting it via a python double */
+        PyErr_Clear();
+        Py_XDECREF(b);
+        temp = (npy_longdouble) MyPyFloat_AsDouble(op);
+    }
+    return temp;
+}
+
+static PyObject *
+LONGDOUBLE_getitem(void *ip, void *ap)
+{
+    PyMicArrayObject *map = (PyMicArrayObject *)ap;
+    npy_longdouble temp;
+    int device = PyMicArray_DEVICE(map);
+    #pragma omp target device(device) map(to: ip) map(from: temp)
+    temp = *((npy_longdouble* )ip);
+    return PyArray_Scalar(&temp, PyMicArray_DESCR(map), NULL);
+}
+
+static int
+LONGDOUBLE_setitem(PyObject *op, void *ov, void *vap)
+{
+    PyMicArrayObject *ap = vap;
+    /* ensure alignment */
+    int device;
+    npy_longdouble temp;
+
+    if (ap == NULL) {
+        return -1;
+    }
+
+    if (PyArray_IsZeroDim(op)) {
+        return convert_to_scalar_and_retry(op, ov, vap, LONGDOUBLE_setitem);
+    }
+
+    if (PyArray_IsScalar(op, LongDouble)) {
+        temp = ((PyLongDoubleScalarObject *)op)->obval;
+    }
+    else {
+        /* In case something funny happened in PyArray_IsScalar */
+        if (PyErr_Occurred()) {
+            return -1;
+        }
+        temp = string_to_long_double(op);
+    }
+    if (PyErr_Occurred()) {
+        return -1;
+    }
+
+    device = PyMicArray_DEVICE(ap);
+    #pragma omp target device(device) map(to: temp)
+    *((npy_longdouble *)ov) = temp;
+    return 0;
+}
+
+static PyObject *
+CLONGDOUBLE_getitem(void *ip, void *vap)
+{
+    PyMicArrayObject *ap = (PyMicArrayObject *)ap;
+    npy_clongdouble temp;
+    int device = PyMicArray_DEVICE(ap);
+    target_memcpy(&temp, ip, sizeof(npy_clongdouble),
+                    omp_get_initial_device(), device);
+    return PyArray_Scalar(&temp, PyMicArray_DESCR(ap), NULL);
+}
 
 /*
  *****************************************************************************

@@ -12,7 +12,7 @@ PyMicArray_AssignOne(PyMicArrayObject *dst,
 NPY_NO_EXPORT PyObject *
 PyMicArray_NewCopy(PyMicArrayObject *obj, NPY_ORDER order);
 
-#define PyMicArray_Copy(obj) PyMicArray_NewCopy(obj, NPY_CORDER);
+#define PyMicArray_Copy(obj) PyMicArray_NewCopy(obj, NPY_CORDER)
 
 NPY_NO_EXPORT PyObject *
 PyMicArray_View(PyMicArrayObject *self,

@@ -63,6 +63,9 @@ PyMicArray_FailUnlessWriteable(PyMicArrayObject *obj, const char *name);
 NPY_NO_EXPORT int
 PyMicArray_SetUpdateIfCopyBase(PyMicArrayObject *arr, PyMicArrayObject *base);
 
+NPY_NO_EXPORT int
+PyMicArray_ElementStrides(PyObject *obj);
+
 /*
  * This flag is used to mark arrays which we would like to, in the future,
  * turn into views. It causes a warning to be issued on the first attempt to

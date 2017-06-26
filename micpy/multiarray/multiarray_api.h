@@ -235,4 +235,7 @@ static int _import_pymicarray() {
 #define MpyIter_GetOffInnerStrideArray \
     (*(npy_intp * (*)(MpyIter *)) \
      PyMicArray_API[52])
+#define PyMicArray_SetNumericOps \
+    (*(int (*)(PyObject *)) \
+     PyMicArray_API[53])
 #endif

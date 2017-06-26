@@ -8,6 +8,9 @@ can_cast_scalar_to(PyArray_Descr *scal_type, char *scal_data, int scal_device,
 NPY_NO_EXPORT npy_bool
 PyMicArray_CanCastArrayTo(PyMicArrayObject *arr, PyArray_Descr *to, NPY_CASTING casting);
 
+NPY_NO_EXPORT PyObject *
+PyMicArray_CastToType(PyMicArrayObject *arr, PyArray_Descr *dtype, int is_f_order);
+
 /*
  * This function calls Py_DECREF on flex_dtype, and replaces it with
  * a new dtype that has been adapted based on the values in data_dtype

@@ -138,4 +138,20 @@ typedef struct {
 
 } PyMicArray_ArrFuncs;
 
+#define PyMicArray_ISBOOL(obj) PyTypeNum_ISBOOL(PyMicArray_TYPE(obj))
+#define PyMicArray_ISUNSIGNED(obj) PyTypeNum_ISUNSIGNED(PyMicArray_TYPE(obj))
+#define PyMicArray_ISSIGNED(obj) PyTypeNum_ISSIGNED(PyMicArray_TYPE(obj))
+#define PyMicArray_ISINTEGER(obj) PyTypeNum_ISINTEGER(PyMicArray_TYPE(obj))
+#define PyMicArray_ISFLOAT(obj) PyTypeNum_ISFLOAT(PyMicArray_TYPE(obj))
+#define PyMicArray_ISNUMBER(obj) PyTypeNum_ISNUMBER(PyMicArray_TYPE(obj))
+#define PyMicArray_ISSTRING(obj) PyTypeNum_ISSTRING(PyMicArray_TYPE(obj))
+#define PyMicArray_ISCOMPLEX(obj) PyTypeNum_ISCOMPLEX(PyMicArray_TYPE(obj))
+#define PyMicArray_ISPYTHON(obj) PyTypeNum_ISPYTHON(PyMicArray_TYPE(obj))
+#define PyMicArray_ISFLEXIBLE(obj) PyTypeNum_ISFLEXIBLE(PyMicArray_TYPE(obj))
+#define PyMicArray_ISDATETIME(obj) PyTypeNum_ISDATETIME(PyMicArray_TYPE(obj))
+#define PyMicArray_ISUSERDEF(obj) PyTypeNum_ISUSERDEF(PyMicArray_TYPE(obj))
+#define PyMicArray_ISEXTENDED(obj) PyTypeNum_ISEXTENDED(PyMicArray_TYPE(obj))
+#define PyMicArray_ISOBJECT(obj) PyTypeNum_ISOBJECT(PyMicArray_TYPE(obj))
+#define PyMicArray_HASFIELDS(obj) PyDataType_HASFIELDS(PyMicArray_DESCR(obj))
+
 #endif

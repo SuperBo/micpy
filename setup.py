@@ -23,12 +23,12 @@ private_npy_defines = [('HAVE_ENDIAN_H', 1),
 def add_multiarray_ext(config):
     multiarray_sources = ['alloc.c', 'array_assign.c', 'arrayobject.c',
             'cblasfuncs.c', 'common.c', 'calculation.c', 'convert.c',
-            'conversion_utils.c', 'creators.c', 'getset.c',
+            'number.c', 'conversion_utils.c', 'creators.c', 'getset.c',
             'methods.c', 'shape.c', 'scalar.c', 'item_selection.c',
             'convert_datatype.c', 'dtype_transfer.c', 'mpymem_overlap.c',
             'nditer_templ.c.src', 'nditer_constr.c', 'nditer_api.c',
             'arraytypes.c.src', 'mpy_lowlevel_strided_loops.c.src',
-            'multiarraymodule.c']
+            'temp_elide.c' ,'multiarraymodule.c']
     multiarray_sources = [join(multiarray_dir, f) for f in multiarray_sources]
 
     #Add numpy/private/mem_overlap.c to sources

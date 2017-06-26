@@ -186,6 +186,13 @@ _strided_byte_swap(void *p, npy_intp stride, npy_intp n, int size)
     }
 }
 
+NPY_NO_EXPORT MPY_TARGET_MIC void
+byte_swap_vector(void *p, npy_intp n, int size)
+{
+    _strided_byte_swap(p, (npy_intp) size, n, size);
+    return;
+}
+
 /*
  * Generic new array creation routine.
  * Internal variant with calloc argument for PyArray_Zeros.
@@ -1163,4 +1170,40 @@ PyMicArray_SubclassWrap(PyMicArrayObject *arr_of_subclass, PyMicArrayObject *tow
     }
 
     return (PyMicArrayObject *)wrapped;
+}
+
+/*NUMPY_API
+ * This is a quick wrapper around
+ * PyArray_FromAny(op, NULL, 0, 0, NPY_ARRAY_ENSUREARRAY, NULL)
+ * that special cases Arrays and PyArray_Scalars up front
+ * It *steals a reference* to the object
+ * It also guarantees that the result is PyArray_Type
+ * Because it decrefs op if any conversion needs to take place
+ * so it can be used like PyArray_EnsureArray(some_function(...))
+ */
+NPY_NO_EXPORT PyObject *
+PyMicArray_EnsureArray(PyObject *op, int device)
+{
+    PyObject *new;
+    PyArrayObject *tmp_arr;
+
+    if ((op == NULL) || (PyMicArray_CheckExact(op))) {
+        new = op;
+        Py_XINCREF(new);
+    }
+    else if (PyMicArray_Check(op)) {
+        new = PyMicArray_View((PyMicArrayObject *)op, NULL, &PyMicArray_Type);
+    }
+    else if (PyArray_IsScalar(op, Generic)) {
+        tmp_arr = (PyArrayObject *) PyArray_FromScalar(op, NULL);
+        new = PyMicArray_FromArray(tmp_arr, NULL, device, NPY_KEEPORDER);
+        Py_DECREF(tmp_arr);
+    }
+    else {
+        tmp_arr = (PyArrayObject *) PyArray_FROM_OF(op, NPY_ARRAY_ENSUREARRAY);
+        new = PyMicArray_FromArray(tmp_arr, NULL, device, NPY_KEEPORDER);
+        Py_DECREF(tmp_arr);
+    }
+    Py_XDECREF(op);
+    return new;
 }

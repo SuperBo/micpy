@@ -10,6 +10,9 @@ _unaligned_strided_byte_copy(char *dst, npy_intp outstrides, char *src,
 NPY_NO_EXPORT MPY_TARGET_MIC void
 _strided_byte_swap(void *p, npy_intp stride, npy_intp n, int size);
 
+NPY_NO_EXPORT MPY_TARGET_MIC void
+byte_swap_vector(void *p, npy_intp n, int size);
+
 NPY_NO_EXPORT PyObject *
 PyMicArray_NewFromDescr(int device, PyTypeObject *subtype,
                      PyArray_Descr *descr, int nd,
@@ -65,6 +68,9 @@ PyMicArray_MoveInto(PyMicArrayObject *dst, PyMicArrayObject *src);
 
 NPY_NO_EXPORT int
 PyMicArray_CopyAsFlat(PyMicArrayObject *dst, PyMicArrayObject *src, NPY_ORDER order);
+
+NPY_NO_EXPORT PyObject *
+PyMicArray_EnsureArray(PyObject *op, int device);
 
 /* Some utilities function */
 NPY_NO_EXPORT void
