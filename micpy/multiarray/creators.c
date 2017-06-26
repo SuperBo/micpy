@@ -634,7 +634,7 @@ PyMicArray_FromArray(PyArrayObject *arr, PyArray_Descr *newtype, int device, int
          * Check if object is of array with Null newtype.
          * If so return it directly instead of checking for casting.
          */
-        if (flags == 0) {
+        if (PyMicArray_Check(arr) && flags == 0) {
             Py_INCREF(arr);
             return (PyObject *)arr;
         }
