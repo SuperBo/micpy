@@ -122,6 +122,7 @@ PyMUFunc_InitSpecialTypeResolvers(PyObject *umath_module)
 NPY_VISIBILITY_HIDDEN PyObject * mpy_um_str_out = NULL;
 NPY_VISIBILITY_HIDDEN PyObject * mpy_um_str_subok = NULL;
 NPY_VISIBILITY_HIDDEN PyObject * mpy_um_str_pyvals_name = NULL;
+NPY_VISIBILITY_HIDDEN PyObject * mpy_um_str_array_wrap = NULL;
 
 /* intern some strings used in ufuncs */
 static int
@@ -130,8 +131,9 @@ intern_strings(void)
     mpy_um_str_out = PyUString_InternFromString("out");
     mpy_um_str_subok = PyUString_InternFromString("subok");
     mpy_um_str_pyvals_name = PyUString_InternFromString(MUFUNC_PYVALS_NAME);
+    mpy_um_str_array_wrap = PyUString_InternFromString("__array_wrap__");
 
-    return mpy_um_str_out && mpy_um_str_subok;
+    return mpy_um_str_out && mpy_um_str_subok && mpy_um_str_array_wrap;
 }
 
 /* Setup the umath module */

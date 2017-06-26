@@ -70,6 +70,7 @@ extern PyTypeObject PyMUFunc_Type;
 NPY_VISIBILITY_HIDDEN extern PyObject * mpy_um_str_out;
 NPY_VISIBILITY_HIDDEN extern PyObject * mpy_um_str_subok;
 NPY_VISIBILITY_HIDDEN extern PyObject * mpy_um_str_pyvals_name;
+NPY_VISIBILITY_HIDDEN extern PyObject * mpy_um_str_array_wrap;
 
 NPY_NO_EXPORT PyObject *
 PyMUFunc_FromFuncAndData(PyUFuncGenericFunction *func, void **data,

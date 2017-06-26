@@ -391,6 +391,15 @@ _set_out_array(PyObject *obj, PyMicArrayObject **store)
 /********* GENERIC UFUNC USING ITERATOR *********/
 
 /*
+ * Produce a name for the ufunc, if one is not already set
+ * This is used in the PyUFunc_handlefperr machinery, and in error messages
+ */
+static const char*
+_get_ufunc_name(PyUFuncObject *ufunc) {
+    return ufunc->name ? ufunc->name : "<unnamed ufunc>";
+}
+
+/*
  * Parses the positional and keyword arguments for a generic ufunc call.
  *
  * Note that if an error is returned, the caller must free the
@@ -413,8 +422,8 @@ get_ufunc_arguments(PyUFuncObject *ufunc,
     int nout = ufunc->nout;
     PyObject *obj, *context;
     PyObject *str_key_obj = NULL;
-    const char *ufunc_name;
-    int type_num;
+    const char *ufunc_name = _get_ufunc_name(ufunc);
+    int type_num, device;
 
     int any_flexible = 0, any_object = 0, any_flexible_userloops = 0;
     int has_sig = 0;
@@ -434,19 +443,29 @@ get_ufunc_arguments(PyUFuncObject *ufunc,
         return -1;
     }
 
+    device = PyMicArray_GetCurrentDevice();
+
     /* Get input arguments */
     for (i = 0; i < nin; ++i) {
         obj = PyTuple_GET_ITEM(args, i);
 
         if (PyMicArray_Check(obj)) {
             PyMicArrayObject *obj_a = (PyMicArrayObject *)obj;
-            out_op[i] = (PyMicArrayObject *)PyMicArray_FromArray((PyArrayObject *)obj_a,
-                            NULL, PyMicArray_DEVICE(obj_a), 0);
+            device = PyMicArray_DEVICE(obj_a); // use for next op
+            Py_INCREF(obj_a);
+            out_op[i] = obj_a;
+        }
+        else if (PyArray_Check(obj)) {
+            out_op[i] = (PyMicArrayObject *)PyMicArray_FromArray(
+                            (PyArrayObject *)obj, NULL, device, 0);
         }
         else if (PyArray_IsScalar(obj, Generic)) {
             /*
              * TODO: Convert scalar to PyMicArray
              */
+        }
+        else {
+            out_op[i] = NULL;
         }
 
         if (out_op[i] == NULL) {
@@ -1582,7 +1601,7 @@ PyMUFunc_GeneralizedFunction(PyUFuncObject *ufunc,
     nout = ufunc->nout;
     nop = nin + nout;
 
-    ufunc_name = ufunc->name ? ufunc->name : "<unnamed mufunc>";
+    ufunc_name = _get_ufunc_name(ufunc);
 
     NPY_UF_DBG_PRINT1("\nEvaluating ufunc %s\n", ufunc_name);
 
@@ -2650,6 +2669,179 @@ PyMUFunc_GenericReduction(PyUFuncObject *ufunc, PyObject *args,
     return NULL;
 }
 
+/*
+ * Returns an incref'ed pointer to the proper wrapping object for a
+ * ufunc output argument, given the output argument 'out', and the
+ * input's wrapping function, 'wrap'.
+ */
+static PyObject*
+_get_out_wrap(PyObject *out, PyObject *wrap) {
+    PyObject *owrap;
+
+    if (out == Py_None) {
+        /* Iterator allocated outputs get the input's wrapping */
+        Py_XINCREF(wrap);
+        return wrap;
+    }
+    if (PyMicArray_CheckExact(out) || PyArray_CheckExact(out)) {
+        /* None signals to not call any wrapping */
+        Py_RETURN_NONE;
+    }
+    /*
+     * For array subclasses use their __array_wrap__ method, or the
+     * input's wrapping if not available
+     */
+    owrap = PyObject_GetAttr(out, mpy_um_str_array_wrap);
+    if (owrap == NULL || !PyCallable_Check(owrap)) {
+        Py_XDECREF(owrap);
+        owrap = wrap;
+        Py_XINCREF(wrap);
+        PyErr_Clear();
+    }
+    return owrap;
+}
+
+/*
+ * This function analyzes the input arguments
+ * and determines an appropriate __array_wrap__ function to call
+ * for the outputs.
+ *
+ * If an output argument is provided, then it is wrapped
+ * with its own __array_wrap__ not with the one determined by
+ * the input arguments.
+ *
+ * if the provided output argument is already an array,
+ * the wrapping function is None (which means no wrapping will
+ * be done --- not even PyArray_Return).
+ *
+ * A NULL is placed in output_wrap for outputs that
+ * should just have PyArray_Return called.
+ */
+static void
+_find_array_wrap(PyObject *args, PyObject *kwds,
+                PyObject **output_wrap, int nin, int nout)
+{
+    Py_ssize_t nargs;
+    int i, idx_offset, start_idx;
+    int np = 0;
+    PyObject *with_wrap[NPY_MAXARGS], *wraps[NPY_MAXARGS];
+    PyObject *obj, *wrap = NULL;
+
+    /*
+     * If a 'subok' parameter is passed and isn't True, don't wrap but put None
+     * into slots with out arguments which means return the out argument
+     */
+    if (kwds != NULL && (obj = PyDict_GetItem(kwds,
+                                              mpy_um_str_subok)) != NULL) {
+        if (obj != Py_True) {
+            /* skip search for wrap members */
+            goto handle_out;
+        }
+    }
+
+
+    for (i = 0; i < nin; i++) {
+        obj = PyTuple_GET_ITEM(args, i);
+        if (PyMicArray_CheckExact(obj) || PyArray_CheckExact(obj) ||
+                PyArray_IsAnyScalar(obj)) {
+            continue;
+        }
+        wrap = PyObject_GetAttr(obj, mpy_um_str_array_wrap);
+        if (wrap) {
+            if (PyCallable_Check(wrap)) {
+                with_wrap[np] = obj;
+                wraps[np] = wrap;
+                ++np;
+            }
+            else {
+                Py_DECREF(wrap);
+                wrap = NULL;
+            }
+        }
+        else {
+            PyErr_Clear();
+        }
+    }
+    if (np > 0) {
+        /* If we have some wraps defined, find the one of highest priority */
+        wrap = wraps[0];
+        if (np > 1) {
+            double maxpriority = PyArray_GetPriority(with_wrap[0],
+                        NPY_PRIORITY);
+            for (i = 1; i < np; ++i) {
+                double priority = PyArray_GetPriority(with_wrap[i],
+                            NPY_PRIORITY);
+                if (priority > maxpriority) {
+                    maxpriority = priority;
+                    Py_DECREF(wrap);
+                    wrap = wraps[i];
+                }
+                else {
+                    Py_DECREF(wraps[i]);
+                }
+            }
+        }
+    }
+
+    /*
+     * Here wrap is the wrapping function determined from the
+     * input arrays (could be NULL).
+     *
+     * For all the output arrays decide what to do.
+     *
+     * 1) Use the wrap function determined from the input arrays
+     * This is the default if the output array is not
+     * passed in.
+     *
+     * 2) Use the __array_wrap__ method of the output object
+     * passed in. -- this is special cased for
+     * exact ndarray so that no PyArray_Return is
+     * done in that case.
+     */
+handle_out:
+    nargs = PyTuple_GET_SIZE(args);
+    /* Default is using positional arguments */
+    obj = args;
+    idx_offset = nin;
+    start_idx = 0;
+    if (nin == nargs && kwds != NULL) {
+        /* There may be a keyword argument we can use instead */
+        obj = PyDict_GetItem(kwds, mpy_um_str_out);
+        if (obj == NULL) {
+            /* No, go back to positional (even though there aren't any) */
+            obj = args;
+        }
+        else {
+            idx_offset = 0;
+            if (PyTuple_Check(obj)) {
+                /* If a tuple, must have all nout items */
+                nargs = nout;
+            }
+            else {
+                /* If the kwarg is not a tuple then it is an array (or None) */
+                output_wrap[0] = _get_out_wrap(obj, wrap);
+                start_idx = 1;
+                nargs = 1;
+            }
+        }
+    }
+
+    for (i = start_idx; i < nout; ++i) {
+        int j = idx_offset + i;
+
+        if (j < nargs) {
+            output_wrap[i] = _get_out_wrap(PyTuple_GET_ITEM(obj, j),
+                                           wrap);
+        }
+        else {
+            output_wrap[i] = wrap;
+            Py_XINCREF(wrap);
+        }
+    }
+
+    Py_XDECREF(wrap);
+    return;
+}
 
 static PyObject *
 mufunc_generic_call(PyUFuncObject *ufunc, PyObject *args, PyObject *kwds)
@@ -2716,13 +2908,39 @@ mufunc_generic_call(PyUFuncObject *ufunc, PyObject *args, PyObject *kwds)
      * None --- array-object passed in don't call PyArray_Return
      * method --- the __array_wrap__ method to call.
      */
+    _find_array_wrap(args, kwds, wraparr, ufunc->nin, ufunc->nout);
 
     /* wrap outputs */
     for (i = 0; i < ufunc->nout; i++) {
         int j = ufunc->nin+i;
+        PyObject *wrap = wraparr[i];
 
-        /* default behavior */
-        retobj[i] = PyMicArray_Return(mps[j]);
+        if (wrap != NULL) {
+            if (wrap == Py_None) {
+                Py_DECREF(wrap);
+                retobj[i] = (PyObject *)mps[j];
+                continue;
+            }
+            res = PyObject_CallFunction(wrap, "O(OOi)", mps[j], ufunc, args, i);
+            /* Handle __array_wrap__ that does not accept a context argument */
+            if (res == NULL && PyErr_ExceptionMatches(PyExc_TypeError)) {
+                PyErr_Clear();
+                res = PyObject_CallFunctionObjArgs(wrap, mps[j], NULL);
+            }
+            Py_DECREF(wrap);
+            if (res == NULL) {
+                goto fail;
+            }
+            else {
+                Py_DECREF(mps[j]);
+                retobj[i] = res;
+                continue;
+            }
+        }
+        else {
+            /* default behavior */
+            retobj[i] = PyMicArray_Return(mps[j]);
+        }
     }
 
     if (ufunc->nout == 1) {
@@ -2735,6 +2953,12 @@ mufunc_generic_call(PyUFuncObject *ufunc, PyObject *args, PyObject *kwds)
         }
         return (PyObject *)ret;
     }
+
+fail:
+    for (i = ufunc->nin; i < ufunc->nargs; i++) {
+        Py_XDECREF(mps[i]);
+    }
+    return NULL;
 }
 
 NPY_NO_EXPORT PyObject *
