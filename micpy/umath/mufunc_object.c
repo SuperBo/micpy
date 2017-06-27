@@ -374,7 +374,7 @@ _set_out_array(PyObject *obj, PyMicArrayObject **store)
         /* Translate None to NULL */
         return 0;
     }
-    if PyMicArray_Check(obj) {
+    if (PyMicArray_Check(obj)) {
         /* If it's an array, store it */
         if (PyMicArray_FailUnlessWriteable((PyMicArrayObject *)obj,
                                         "output array") < 0) {
@@ -928,6 +928,7 @@ trivial_two_operand_loop(PyMicArrayObject **op,
     npy_intp count[2], stride[2];
     int needs_api, device;
     MPY_TARGET_MIC PyUFuncGenericFunction offloop = innerloop;
+    MPY_TARGET_MIC void (*offdata)(void) = innerloopdata;
 
     NPY_BEGIN_THREADS_DEF;
 
@@ -948,8 +949,8 @@ trivial_two_operand_loop(PyMicArrayObject **op,
     }
 
 #pragma omp target device(device) map(to:offloop, data,\
-                                        count, stride, innerloopdata)
-    offloop((char **)data, count, stride, innerloopdata);
+                                        count, stride, offdata)
+    offloop((char **)data, count, stride, offdata);
 
     NPY_END_THREADS;
 }
@@ -963,6 +964,7 @@ trivial_three_operand_loop(PyMicArrayObject **op,
     npy_intp count[3], stride[3];
     int needs_api, device;
     MPY_TARGET_MIC PyUFuncGenericFunction offloop = innerloop;
+    MPY_TARGET_MIC void (*offdata)(void) = innerloopdata;
 
     NPY_BEGIN_THREADS_DEF;
 
@@ -984,8 +986,8 @@ trivial_three_operand_loop(PyMicArrayObject **op,
     }
 
 #pragma omp target device(device) map(to:offloop, data,\
-                                        count, stride, innerloopdata)
-    offloop((char **)data, count, stride, innerloopdata);
+                                        count, stride, offdata)
+    offloop((char **)data, count, stride, offdata);
 
     NPY_END_THREADS;
 }
@@ -1010,6 +1012,7 @@ iterator_loop(PyUFuncObject *ufunc,
 
     MPY_TARGET_MIC MpyIter_IterNextFunc *iternext;
     MPY_TARGET_MIC PyUFuncGenericFunction offloop = innerloop;
+    MPY_TARGET_MIC void (*offdata)(void) = innerloopdata;
     npy_intp *dataptr;
     npy_intp *stride;
     npy_intp *count_ptr;
@@ -1122,10 +1125,10 @@ iterator_loop(PyUFuncObject *ufunc,
 
         /* Execute the loop */
 #pragma omp target device(device) map(to:offloop, iternext, \
-                dataptr, count_ptr, stride, innerloopdata)
+                dataptr, count_ptr, stride, offdata)
         do {
             //NPY_UF_DBG_PRINT1("iterator loop count %d\n", (int)*count_ptr);
-            offloop((char **)dataptr, count_ptr, stride, innerloopdata);
+            offloop((char **)dataptr, count_ptr, stride, offdata);
         } while (iternext(iter));
 
         NPY_END_THREADS;
@@ -2241,6 +2244,8 @@ PyMUFunc_GenericFunction(PyUFuncObject *ufunc,
         arr_prep[i] = NULL;
     }
 
+    NPY_UF_DBG_PRINT("Getting arguments\n");
+
     /* Get all the arguments */
     retval = get_ufunc_arguments(ufunc, args, kwds,
                 op, &order, &casting, &extobj,
@@ -2268,6 +2273,8 @@ PyMUFunc_GenericFunction(PyUFuncObject *ufunc,
         retval = -1;
         goto fail;
     }
+
+    NPY_UF_DBG_PRINT("Finding inner loop\n");
 
     /* Work around to live with numpy type_resolver */
     ufunc_pre_typeresolver(ufunc, op, scal_ptrs, scal_buffer, 4);

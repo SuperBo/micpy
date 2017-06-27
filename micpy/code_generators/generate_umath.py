@@ -856,6 +856,8 @@ def make_arrays(funcdict):
     # functions array contains an entry for every type implemented NULL
     # should be placed where PyUfunc_ style function will be filled in
     # later
+    # NOTE: PyMUFunc_ is placed directly instead of fill in later to
+    # avoid compiler stripping unused MIC function
     code1list = []
     code2list = []
     names = sorted(funcdict.keys())
@@ -876,13 +878,14 @@ def make_arrays(funcdict):
         for t in uf.type_descriptions:
             if (t.func_data not in (None, FullTypeDescr) and
                     not isinstance(t.func_data, FuncNameSuffix)):
-                funclist.append('NULL')
+                #funclist.append('NULL')
                 astype = ''
                 if not t.astype is None:
                     astype = '_As_%s' % thedict[t.astype]
-                astr = ('%s_functions[%d] = PyMUFunc_%s%s;' %
-                           (name, k, thedict[t.type], astype))
-                code2list.append(astr)
+                # astr = ('%s_functions[%d] = PyMUFunc_%s%s;' %
+                #            (name, k, thedict[t.type], astype))
+                # code2list.append(astr)
+                funclist.append('PyMUFunc_%s%s'%(thedict[t.type], astype))
                 if t.type == 'O':
                     astr = ('%s_data[%d] = (void *) %s;' %
                                (name, k, t.func_data))
@@ -891,11 +894,11 @@ def make_arrays(funcdict):
                 elif t.type == 'P':
                     datalist.append('(void *)"%s"' % t.func_data)
                 else:
-                    astr = ('%s_data[%d] = (void *) %s;' %
-                               (name, k, t.func_data))
-                    code2list.append(astr)
-                    datalist.append('(void *)NULL')
-                    #datalist.append('(void *)%s' % t.func_data)
+                    #astr = ('%s_data[%d] = (void *) %s;' %
+                    #           (name, k, t.func_data))
+                    #code2list.append(astr)
+                    #datalist.append('(void *)NULL')
+                    datalist.append('(void *)%s' % t.func_data)
                 sub += 1
             elif t.func_data is FullTypeDescr:
                 tname = english_upper(chartoname[t.type])
