@@ -898,8 +898,103 @@ PyMicArray_PrepareOneRawArrayIter(int ndim, npy_intp *shape,
                             int *out_ndim, npy_intp *out_shape,
                             char **out_data, npy_intp *out_strides)
 {
-    //TODO
-    return -1;
+    npy_stride_sort_item strideperm[NPY_MAXDIMS];
+    int i, j;
+
+    /* Special case 0 and 1 dimensions */
+    if (ndim == 0) {
+        *out_ndim = 1;
+        *out_data = data;
+        out_shape[0] = 1;
+        out_strides[0] = 0;
+        return 0;
+    }
+    else if (ndim == 1) {
+        npy_intp stride_entry = strides[0], shape_entry = shape[0];
+        *out_ndim = 1;
+        out_shape[0] = shape[0];
+        /* Always make a positive stride */
+        if (stride_entry >= 0) {
+            *out_data = data;
+            out_strides[0] = stride_entry;
+        }
+        else {
+            *out_data = data + stride_entry * (shape_entry - 1);
+            out_strides[0] = -stride_entry;
+        }
+        return 0;
+    }
+
+    /* Sort the axes based on the destination strides */
+    PyArray_CreateSortedStridePerm(ndim, strides, strideperm);
+    for (i = 0; i < ndim; ++i) {
+        int iperm = strideperm[ndim - i - 1].perm;
+        out_shape[i] = shape[iperm];
+        out_strides[i] = strides[iperm];
+    }
+
+    /* Reverse any negative strides */
+    for (i = 0; i < ndim; ++i) {
+        npy_intp stride_entry = out_strides[i], shape_entry = out_shape[i];
+
+        if (stride_entry < 0) {
+            data += stride_entry * (shape_entry - 1);
+            out_strides[i] = -stride_entry;
+        }
+        /* Detect 0-size arrays here */
+        if (shape_entry == 0) {
+            *out_ndim = 1;
+            *out_data = data;
+            out_shape[0] = 0;
+            out_strides[0] = 0;
+            return 0;
+        }
+    }
+
+    /* Coalesce any dimensions where possible */
+    i = 0;
+    for (j = 1; j < ndim; ++j) {
+        if (out_shape[i] == 1) {
+            /* Drop axis i */
+            out_shape[i] = out_shape[j];
+            out_strides[i] = out_strides[j];
+        }
+        else if (out_shape[j] == 1) {
+            /* Drop axis j */
+        }
+        else if (out_strides[i] * out_shape[i] == out_strides[j]) {
+            /* Coalesce axes i and j */
+            out_shape[i] *= out_shape[j];
+        }
+        else {
+            /* Can't coalesce, go to next i */
+            ++i;
+            out_shape[i] = out_shape[j];
+            out_strides[i] = out_strides[j];
+        }
+    }
+    ndim = i+1;
+
+#if 0
+    /* DEBUG */
+    {
+        printf("raw iter ndim %d\n", ndim);
+        printf("shape: ");
+        for (i = 0; i < ndim; ++i) {
+            printf("%d ", (int)out_shape[i]);
+        }
+        printf("\n");
+        printf("strides: ");
+        for (i = 0; i < ndim; ++i) {
+            printf("%d ", (int)out_strides[i]);
+        }
+        printf("\n");
+    }
+#endif
+
+    *out_data = data;
+    *out_ndim = ndim;
+    return 0;
 }
 
 /*
@@ -926,8 +1021,104 @@ PyMicArray_PrepareTwoRawArrayIter(int ndim, npy_intp *shape,
                             char **out_dataA, npy_intp *out_stridesA,
                             char **out_dataB, npy_intp *out_stridesB)
 {
-    //TODO
-   return -1;
+    npy_stride_sort_item strideperm[NPY_MAXDIMS];
+    int i, j;
+
+    /* Special case 0 and 1 dimensions */
+    if (ndim == 0) {
+        *out_ndim = 1;
+        *out_dataA = dataA;
+        *out_dataB = dataB;
+        out_shape[0] = 1;
+        out_stridesA[0] = 0;
+        out_stridesB[0] = 0;
+        return 0;
+    }
+    else if (ndim == 1) {
+        npy_intp stride_entryA = stridesA[0], stride_entryB = stridesB[0];
+        npy_intp shape_entry = shape[0];
+        *out_ndim = 1;
+        out_shape[0] = shape[0];
+        /* Always make a positive stride for the first operand */
+        if (stride_entryA >= 0) {
+            *out_dataA = dataA;
+            *out_dataB = dataB;
+            out_stridesA[0] = stride_entryA;
+            out_stridesB[0] = stride_entryB;
+        }
+        else {
+            *out_dataA = dataA + stride_entryA * (shape_entry - 1);
+            *out_dataB = dataB + stride_entryB * (shape_entry - 1);
+            out_stridesA[0] = -stride_entryA;
+            out_stridesB[0] = -stride_entryB;
+        }
+        return 0;
+    }
+
+    /* Sort the axes based on the destination strides */
+    PyArray_CreateSortedStridePerm(ndim, stridesA, strideperm);
+    for (i = 0; i < ndim; ++i) {
+        int iperm = strideperm[ndim - i - 1].perm;
+        out_shape[i] = shape[iperm];
+        out_stridesA[i] = stridesA[iperm];
+        out_stridesB[i] = stridesB[iperm];
+    }
+
+    /* Reverse any negative strides of operand A */
+    for (i = 0; i < ndim; ++i) {
+        npy_intp stride_entryA = out_stridesA[i];
+        npy_intp stride_entryB = out_stridesB[i];
+        npy_intp shape_entry = out_shape[i];
+
+        if (stride_entryA < 0) {
+            dataA += stride_entryA * (shape_entry - 1);
+            dataB += stride_entryB * (shape_entry - 1);
+            out_stridesA[i] = -stride_entryA;
+            out_stridesB[i] = -stride_entryB;
+        }
+        /* Detect 0-size arrays here */
+        if (shape_entry == 0) {
+            *out_ndim = 1;
+            *out_dataA = dataA;
+            *out_dataB = dataB;
+            out_shape[0] = 0;
+            out_stridesA[0] = 0;
+            out_stridesB[0] = 0;
+            return 0;
+        }
+    }
+
+    /* Coalesce any dimensions where possible */
+    i = 0;
+    for (j = 1; j < ndim; ++j) {
+        if (out_shape[i] == 1) {
+            /* Drop axis i */
+            out_shape[i] = out_shape[j];
+            out_stridesA[i] = out_stridesA[j];
+            out_stridesB[i] = out_stridesB[j];
+        }
+        else if (out_shape[j] == 1) {
+            /* Drop axis j */
+        }
+        else if (out_stridesA[i] * out_shape[i] == out_stridesA[j] &&
+                    out_stridesB[i] * out_shape[i] == out_stridesB[j]) {
+            /* Coalesce axes i and j */
+            out_shape[i] *= out_shape[j];
+        }
+        else {
+            /* Can't coalesce, go to next i */
+            ++i;
+            out_shape[i] = out_shape[j];
+            out_stridesA[i] = out_stridesA[j];
+            out_stridesB[i] = out_stridesB[j];
+        }
+    }
+    ndim = i+1;
+
+    *out_dataA = dataA;
+    *out_dataB = dataB;
+    *out_ndim = ndim;
+    return 0;
 }
 
 /*
@@ -956,6 +1147,120 @@ PyMicArray_PrepareThreeRawArrayIter(int ndim, npy_intp *shape,
                             char **out_dataB, npy_intp *out_stridesB,
                             char **out_dataC, npy_intp *out_stridesC)
 {
-    //TODO
-   return -1;
+    npy_stride_sort_item strideperm[NPY_MAXDIMS];
+    int i, j;
+
+    /* Special case 0 and 1 dimensions */
+    if (ndim == 0) {
+        *out_ndim = 1;
+        *out_dataA = dataA;
+        *out_dataB = dataB;
+        *out_dataC = dataC;
+        out_shape[0] = 1;
+        out_stridesA[0] = 0;
+        out_stridesB[0] = 0;
+        out_stridesC[0] = 0;
+        return 0;
+    }
+    else if (ndim == 1) {
+        npy_intp stride_entryA = stridesA[0];
+        npy_intp stride_entryB = stridesB[0];
+        npy_intp stride_entryC = stridesC[0];
+        npy_intp shape_entry = shape[0];
+        *out_ndim = 1;
+        out_shape[0] = shape[0];
+        /* Always make a positive stride for the first operand */
+        if (stride_entryA >= 0) {
+            *out_dataA = dataA;
+            *out_dataB = dataB;
+            *out_dataC = dataC;
+            out_stridesA[0] = stride_entryA;
+            out_stridesB[0] = stride_entryB;
+            out_stridesC[0] = stride_entryC;
+        }
+        else {
+            *out_dataA = dataA + stride_entryA * (shape_entry - 1);
+            *out_dataB = dataB + stride_entryB * (shape_entry - 1);
+            *out_dataC = dataC + stride_entryC * (shape_entry - 1);
+            out_stridesA[0] = -stride_entryA;
+            out_stridesB[0] = -stride_entryB;
+            out_stridesC[0] = -stride_entryC;
+        }
+        return 0;
+    }
+
+    /* Sort the axes based on the destination strides */
+    PyArray_CreateSortedStridePerm(ndim, stridesA, strideperm);
+    for (i = 0; i < ndim; ++i) {
+        int iperm = strideperm[ndim - i - 1].perm;
+        out_shape[i] = shape[iperm];
+        out_stridesA[i] = stridesA[iperm];
+        out_stridesB[i] = stridesB[iperm];
+        out_stridesC[i] = stridesC[iperm];
+    }
+
+    /* Reverse any negative strides of operand A */
+    for (i = 0; i < ndim; ++i) {
+        npy_intp stride_entryA = out_stridesA[i];
+        npy_intp stride_entryB = out_stridesB[i];
+        npy_intp stride_entryC = out_stridesC[i];
+        npy_intp shape_entry = out_shape[i];
+
+        if (stride_entryA < 0) {
+            dataA += stride_entryA * (shape_entry - 1);
+            dataB += stride_entryB * (shape_entry - 1);
+            dataC += stride_entryC * (shape_entry - 1);
+            out_stridesA[i] = -stride_entryA;
+            out_stridesB[i] = -stride_entryB;
+            out_stridesC[i] = -stride_entryC;
+        }
+        /* Detect 0-size arrays here */
+        if (shape_entry == 0) {
+            *out_ndim = 1;
+            *out_dataA = dataA;
+            *out_dataB = dataB;
+            *out_dataC = dataC;
+            out_shape[0] = 0;
+            out_stridesA[0] = 0;
+            out_stridesB[0] = 0;
+            out_stridesC[0] = 0;
+            return 0;
+        }
+    }
+
+    /* Coalesce any dimensions where possible */
+    i = 0;
+    for (j = 1; j < ndim; ++j) {
+        if (out_shape[i] == 1) {
+            /* Drop axis i */
+            out_shape[i] = out_shape[j];
+            out_stridesA[i] = out_stridesA[j];
+            out_stridesB[i] = out_stridesB[j];
+            out_stridesC[i] = out_stridesC[j];
+        }
+        else if (out_shape[j] == 1) {
+            /* Drop axis j */
+        }
+        else if (out_stridesA[i] * out_shape[i] == out_stridesA[j] &&
+                    out_stridesB[i] * out_shape[i] == out_stridesB[j] &&
+                    out_stridesC[i] * out_shape[i] == out_stridesC[j]) {
+            /* Coalesce axes i and j */
+            out_shape[i] *= out_shape[j];
+        }
+        else {
+            /* Can't coalesce, go to next i */
+            ++i;
+            out_shape[i] = out_shape[j];
+            out_stridesA[i] = out_stridesA[j];
+            out_stridesB[i] = out_stridesB[j];
+            out_stridesC[i] = out_stridesC[j];
+        }
+    }
+    ndim = i+1;
+
+    *out_dataA = dataA;
+    *out_dataB = dataB;
+    *out_dataC = dataC;
+    *out_ndim = ndim;
+    return 0;
 }

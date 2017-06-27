@@ -12,12 +12,13 @@
 #define _MICARRAYMODULE
 #include "arrayobject.h"
 #include "convert_datatype.h"
+#include "creators.h"
 //#include "methods.h"
 #include "mpy_lowlevel_strided_loops.h"
+#include "mpymem_overlap.h"
 #include "dtype_transfer.h"
 #include "common.h"
 #include "shape.h"
-#include "lowlevel_strided_loops.h"
 
 #include "array_assign.h"
 
@@ -34,6 +35,21 @@ raw_array_is_aligned(int ndim, char *data, npy_intp *strides, int alignment)
         }
 
         return mpy_is_aligned((void *)align_check, alignment);
+    }
+    else {
+        return 1;
+    }
+}
+
+/* Returns 1 if the arrays have overlapping data, 0 otherwise */
+NPY_NO_EXPORT int
+arrays_overlap(PyMicArrayObject *arr1, PyMicArrayObject *arr2)
+{
+    mem_overlap_t result;
+
+    result = solve_may_share_memory(arr1, arr2, NPY_MAY_SHARE_BOUNDS);
+    if (result == MEM_OVERLAP_NO) {
+        return 0;
     }
     else {
         return 1;
@@ -160,393 +176,6 @@ broadcast_error: {
    }
 }
 
-/*
- * Prepares shape and strides for a simple raw array iteration.
- * This sorts the strides into FORTRAN order, reverses any negative
- * strides, then coalesces axes where possible. The results are
- * filled in the output parameters.
- *
- * This is intended for simple, lightweight iteration over arrays
- * where no buffering of any kind is needed, and the array may
- * not be stored as a PyArrayObject.
- *
- * The arrays shape, out_shape, strides, and out_strides must all
- * point to different data.
- *
- * Returns 0 on success, -1 on failure.
- */
-NPY_NO_EXPORT int
-PyArray_PrepareOneRawArrayIter(int ndim, npy_intp *shape,
-                            char *data, npy_intp *strides,
-                            int *out_ndim, npy_intp *out_shape,
-                            char **out_data, npy_intp *out_strides)
-{
-    npy_stride_sort_item strideperm[NPY_MAXDIMS];
-    int i, j;
-
-    /* Special case 0 and 1 dimensions */
-    if (ndim == 0) {
-        *out_ndim = 1;
-        *out_data = data;
-        out_shape[0] = 1;
-        out_strides[0] = 0;
-        return 0;
-    }
-    else if (ndim == 1) {
-        npy_intp stride_entry = strides[0], shape_entry = shape[0];
-        *out_ndim = 1;
-        out_shape[0] = shape[0];
-        /* Always make a positive stride */
-        if (stride_entry >= 0) {
-            *out_data = data;
-            out_strides[0] = stride_entry;
-        }
-        else {
-            *out_data = data + stride_entry * (shape_entry - 1);
-            out_strides[0] = -stride_entry;
-        }
-        return 0;
-    }
-
-    /* Sort the axes based on the destination strides */
-    PyArray_CreateSortedStridePerm(ndim, strides, strideperm);
-    for (i = 0; i < ndim; ++i) {
-        int iperm = strideperm[ndim - i - 1].perm;
-        out_shape[i] = shape[iperm];
-        out_strides[i] = strides[iperm];
-    }
-
-    /* Reverse any negative strides */
-    for (i = 0; i < ndim; ++i) {
-        npy_intp stride_entry = out_strides[i], shape_entry = out_shape[i];
-
-        if (stride_entry < 0) {
-            data += stride_entry * (shape_entry - 1);
-            out_strides[i] = -stride_entry;
-        }
-        /* Detect 0-size arrays here */
-        if (shape_entry == 0) {
-            *out_ndim = 1;
-            *out_data = data;
-            out_shape[0] = 0;
-            out_strides[0] = 0;
-            return 0;
-        }
-    }
-
-    /* Coalesce any dimensions where possible */
-    i = 0;
-    for (j = 1; j < ndim; ++j) {
-        if (out_shape[i] == 1) {
-            /* Drop axis i */
-            out_shape[i] = out_shape[j];
-            out_strides[i] = out_strides[j];
-        }
-        else if (out_shape[j] == 1) {
-            /* Drop axis j */
-        }
-        else if (out_strides[i] * out_shape[i] == out_strides[j]) {
-            /* Coalesce axes i and j */
-            out_shape[i] *= out_shape[j];
-        }
-        else {
-            /* Can't coalesce, go to next i */
-            ++i;
-            out_shape[i] = out_shape[j];
-            out_strides[i] = out_strides[j];
-        }
-    }
-    ndim = i+1;
-
-#if 0
-    /* DEBUG */
-    {
-        printf("raw iter ndim %d\n", ndim);
-        printf("shape: ");
-        for (i = 0; i < ndim; ++i) {
-            printf("%d ", (int)out_shape[i]);
-        }
-        printf("\n");
-        printf("strides: ");
-        for (i = 0; i < ndim; ++i) {
-            printf("%d ", (int)out_strides[i]);
-        }
-        printf("\n");
-    }
-#endif
-
-    *out_data = data;
-    *out_ndim = ndim;
-    return 0;
-}
-
-/*
- * The same as PyArray_PrepareOneRawArrayIter, but for two
- * operands instead of one. Any broadcasting of the two operands
- * should have already been done before calling this function,
- * as the ndim and shape is only specified once for both operands.
- *
- * Only the strides of the first operand are used to reorder
- * the dimensions, no attempt to consider all the strides together
- * is made, as is done in the NpyIter object.
- *
- * You can use this together with NPY_RAW_ITER_START and
- * NPY_RAW_ITER_TWO_NEXT to handle the looping boilerplate of everything
- * but the innermost loop (which is for idim == 0).
- *
- * Returns 0 on success, -1 on failure.
- */
-NPY_NO_EXPORT int
-PyArray_PrepareTwoRawArrayIter(int ndim, npy_intp *shape,
-                            char *dataA, npy_intp *stridesA,
-                            char *dataB, npy_intp *stridesB,
-                            int *out_ndim, npy_intp *out_shape,
-                            char **out_dataA, npy_intp *out_stridesA,
-                            char **out_dataB, npy_intp *out_stridesB)
-{
-    npy_stride_sort_item strideperm[NPY_MAXDIMS];
-    int i, j;
-
-    /* Special case 0 and 1 dimensions */
-    if (ndim == 0) {
-        *out_ndim = 1;
-        *out_dataA = dataA;
-        *out_dataB = dataB;
-        out_shape[0] = 1;
-        out_stridesA[0] = 0;
-        out_stridesB[0] = 0;
-        return 0;
-    }
-    else if (ndim == 1) {
-        npy_intp stride_entryA = stridesA[0], stride_entryB = stridesB[0];
-        npy_intp shape_entry = shape[0];
-        *out_ndim = 1;
-        out_shape[0] = shape[0];
-        /* Always make a positive stride for the first operand */
-        if (stride_entryA >= 0) {
-            *out_dataA = dataA;
-            *out_dataB = dataB;
-            out_stridesA[0] = stride_entryA;
-            out_stridesB[0] = stride_entryB;
-        }
-        else {
-            *out_dataA = dataA + stride_entryA * (shape_entry - 1);
-            *out_dataB = dataB + stride_entryB * (shape_entry - 1);
-            out_stridesA[0] = -stride_entryA;
-            out_stridesB[0] = -stride_entryB;
-        }
-        return 0;
-    }
-
-    /* Sort the axes based on the destination strides */
-    PyArray_CreateSortedStridePerm(ndim, stridesA, strideperm);
-    for (i = 0; i < ndim; ++i) {
-        int iperm = strideperm[ndim - i - 1].perm;
-        out_shape[i] = shape[iperm];
-        out_stridesA[i] = stridesA[iperm];
-        out_stridesB[i] = stridesB[iperm];
-    }
-
-    /* Reverse any negative strides of operand A */
-    for (i = 0; i < ndim; ++i) {
-        npy_intp stride_entryA = out_stridesA[i];
-        npy_intp stride_entryB = out_stridesB[i];
-        npy_intp shape_entry = out_shape[i];
-
-        if (stride_entryA < 0) {
-            dataA += stride_entryA * (shape_entry - 1);
-            dataB += stride_entryB * (shape_entry - 1);
-            out_stridesA[i] = -stride_entryA;
-            out_stridesB[i] = -stride_entryB;
-        }
-        /* Detect 0-size arrays here */
-        if (shape_entry == 0) {
-            *out_ndim = 1;
-            *out_dataA = dataA;
-            *out_dataB = dataB;
-            out_shape[0] = 0;
-            out_stridesA[0] = 0;
-            out_stridesB[0] = 0;
-            return 0;
-        }
-    }
-
-    /* Coalesce any dimensions where possible */
-    i = 0;
-    for (j = 1; j < ndim; ++j) {
-        if (out_shape[i] == 1) {
-            /* Drop axis i */
-            out_shape[i] = out_shape[j];
-            out_stridesA[i] = out_stridesA[j];
-            out_stridesB[i] = out_stridesB[j];
-        }
-        else if (out_shape[j] == 1) {
-            /* Drop axis j */
-        }
-        else if (out_stridesA[i] * out_shape[i] == out_stridesA[j] &&
-                    out_stridesB[i] * out_shape[i] == out_stridesB[j]) {
-            /* Coalesce axes i and j */
-            out_shape[i] *= out_shape[j];
-        }
-        else {
-            /* Can't coalesce, go to next i */
-            ++i;
-            out_shape[i] = out_shape[j];
-            out_stridesA[i] = out_stridesA[j];
-            out_stridesB[i] = out_stridesB[j];
-        }
-    }
-    ndim = i+1;
-
-    *out_dataA = dataA;
-    *out_dataB = dataB;
-    *out_ndim = ndim;
-    return 0;
-}
-
-/*
- * The same as PyArray_PrepareOneRawArrayIter, but for three
- * operands instead of one. Any broadcasting of the three operands
- * should have already been done before calling this function,
- * as the ndim and shape is only specified once for all operands.
- *
- * Only the strides of the first operand are used to reorder
- * the dimensions, no attempt to consider all the strides together
- * is made, as is done in the NpyIter object.
- *
- * You can use this together with NPY_RAW_ITER_START and
- * NPY_RAW_ITER_THREE_NEXT to handle the looping boilerplate of everything
- * but the innermost loop (which is for idim == 0).
- *
- * Returns 0 on success, -1 on failure.
- */
-NPY_NO_EXPORT int
-PyArray_PrepareThreeRawArrayIter(int ndim, npy_intp *shape,
-                            char *dataA, npy_intp *stridesA,
-                            char *dataB, npy_intp *stridesB,
-                            char *dataC, npy_intp *stridesC,
-                            int *out_ndim, npy_intp *out_shape,
-                            char **out_dataA, npy_intp *out_stridesA,
-                            char **out_dataB, npy_intp *out_stridesB,
-                            char **out_dataC, npy_intp *out_stridesC)
-{
-    npy_stride_sort_item strideperm[NPY_MAXDIMS];
-    int i, j;
-
-    /* Special case 0 and 1 dimensions */
-    if (ndim == 0) {
-        *out_ndim = 1;
-        *out_dataA = dataA;
-        *out_dataB = dataB;
-        *out_dataC = dataC;
-        out_shape[0] = 1;
-        out_stridesA[0] = 0;
-        out_stridesB[0] = 0;
-        out_stridesC[0] = 0;
-        return 0;
-    }
-    else if (ndim == 1) {
-        npy_intp stride_entryA = stridesA[0];
-        npy_intp stride_entryB = stridesB[0];
-        npy_intp stride_entryC = stridesC[0];
-        npy_intp shape_entry = shape[0];
-        *out_ndim = 1;
-        out_shape[0] = shape[0];
-        /* Always make a positive stride for the first operand */
-        if (stride_entryA >= 0) {
-            *out_dataA = dataA;
-            *out_dataB = dataB;
-            *out_dataC = dataC;
-            out_stridesA[0] = stride_entryA;
-            out_stridesB[0] = stride_entryB;
-            out_stridesC[0] = stride_entryC;
-        }
-        else {
-            *out_dataA = dataA + stride_entryA * (shape_entry - 1);
-            *out_dataB = dataB + stride_entryB * (shape_entry - 1);
-            *out_dataC = dataC + stride_entryC * (shape_entry - 1);
-            out_stridesA[0] = -stride_entryA;
-            out_stridesB[0] = -stride_entryB;
-            out_stridesC[0] = -stride_entryC;
-        }
-        return 0;
-    }
-
-    /* Sort the axes based on the destination strides */
-    PyArray_CreateSortedStridePerm(ndim, stridesA, strideperm);
-    for (i = 0; i < ndim; ++i) {
-        int iperm = strideperm[ndim - i - 1].perm;
-        out_shape[i] = shape[iperm];
-        out_stridesA[i] = stridesA[iperm];
-        out_stridesB[i] = stridesB[iperm];
-        out_stridesC[i] = stridesC[iperm];
-    }
-
-    /* Reverse any negative strides of operand A */
-    for (i = 0; i < ndim; ++i) {
-        npy_intp stride_entryA = out_stridesA[i];
-        npy_intp stride_entryB = out_stridesB[i];
-        npy_intp stride_entryC = out_stridesC[i];
-        npy_intp shape_entry = out_shape[i];
-
-        if (stride_entryA < 0) {
-            dataA += stride_entryA * (shape_entry - 1);
-            dataB += stride_entryB * (shape_entry - 1);
-            dataC += stride_entryC * (shape_entry - 1);
-            out_stridesA[i] = -stride_entryA;
-            out_stridesB[i] = -stride_entryB;
-            out_stridesC[i] = -stride_entryC;
-        }
-        /* Detect 0-size arrays here */
-        if (shape_entry == 0) {
-            *out_ndim = 1;
-            *out_dataA = dataA;
-            *out_dataB = dataB;
-            *out_dataC = dataC;
-            out_shape[0] = 0;
-            out_stridesA[0] = 0;
-            out_stridesB[0] = 0;
-            out_stridesC[0] = 0;
-            return 0;
-        }
-    }
-
-    /* Coalesce any dimensions where possible */
-    i = 0;
-    for (j = 1; j < ndim; ++j) {
-        if (out_shape[i] == 1) {
-            /* Drop axis i */
-            out_shape[i] = out_shape[j];
-            out_stridesA[i] = out_stridesA[j];
-            out_stridesB[i] = out_stridesB[j];
-            out_stridesC[i] = out_stridesC[j];
-        }
-        else if (out_shape[j] == 1) {
-            /* Drop axis j */
-        }
-        else if (out_stridesA[i] * out_shape[i] == out_stridesA[j] &&
-                    out_stridesB[i] * out_shape[i] == out_stridesB[j] &&
-                    out_stridesC[i] * out_shape[i] == out_stridesC[j]) {
-            /* Coalesce axes i and j */
-            out_shape[i] *= out_shape[j];
-        }
-        else {
-            /* Can't coalesce, go to next i */
-            ++i;
-            out_shape[i] = out_shape[j];
-            out_stridesA[i] = out_stridesA[j];
-            out_stridesB[i] = out_stridesB[j];
-            out_stridesC[i] = out_stridesC[j];
-        }
-    }
-    ndim = i+1;
-
-    *out_dataA = dataA;
-    *out_dataB = dataB;
-    *out_dataC = dataC;
-    *out_ndim = ndim;
-    return 0;
-}
 
 /*
  * ================
@@ -584,7 +213,7 @@ raw_array_assign_scalar(int device, int ndim, npy_intp *shape,
     }
 
     /* Use raw iteration with no heap allocation */
-    if (PyArray_PrepareOneRawArrayIter(
+    if (PyMicArray_PrepareOneRawArrayIter(
                     ndim, shape,
                     dst_data, dst_strides,
                     &ndim, shape_it,
@@ -657,7 +286,7 @@ raw_array_wheremasked_assign_scalar(int device, int ndim, npy_intp *shape,
     }
 
     /* Use raw iteration with no heap allocation */
-    if (PyArray_PrepareTwoRawArrayIter(
+    if (PyMicArray_PrepareTwoRawArrayIter(
                     ndim, shape,
                     dst_data, dst_strides,
                     wheremask_data, wheremask_strides,
@@ -866,12 +495,79 @@ fail:
  * Returns 0 on success, -1 on failure.
  */
 NPY_NO_EXPORT int
-raw_array_assign_array(int ndim, npy_intp *shape,
+raw_array_assign_array(int device, int ndim, npy_intp *shape,
         PyArray_Descr *dst_dtype, char *dst_data, npy_intp *dst_strides,
         PyArray_Descr *src_dtype, char *src_data, npy_intp *src_strides)
 {
-    //TODO: implement
-    return -1;
+    int idim;
+    npy_intp shape_it[NPY_MAXDIMS];
+    npy_intp dst_strides_it[NPY_MAXDIMS];
+    npy_intp src_strides_it[NPY_MAXDIMS];
+    npy_intp coord[NPY_MAXDIMS];
+
+    PyMicArray_StridedUnaryOp *stransfer = NULL;
+    NpyAuxData *transferdata = NULL;
+    int aligned, needs_api = 0;
+    npy_intp src_itemsize = src_dtype->elsize;
+
+    NPY_BEGIN_THREADS_DEF;
+
+    /* Check alignment */
+    aligned = raw_array_is_aligned(ndim,
+                        dst_data, dst_strides, dst_dtype->alignment) &&
+              raw_array_is_aligned(ndim,
+                        src_data, src_strides, src_dtype->alignment);
+
+    /* Use raw iteration with no heap allocation */
+    if (PyMicArray_PrepareTwoRawArrayIter(
+                    ndim, shape,
+                    dst_data, dst_strides,
+                    src_data, src_strides,
+                    &ndim, shape_it,
+                    &dst_data, dst_strides_it,
+                    &src_data, src_strides_it) < 0) {
+        return -1;
+    }
+
+    /*
+     * Overlap check for the 1D case. Higher dimensional arrays and
+     * opposite strides cause a temporary copy before getting here.
+     */
+    if (ndim == 1 && src_data < dst_data &&
+                src_data + shape_it[0] * src_strides_it[0] > dst_data) {
+        src_data += (shape_it[0] - 1) * src_strides_it[0];
+        dst_data += (shape_it[0] - 1) * dst_strides_it[0];
+        src_strides_it[0] = -src_strides_it[0];
+        dst_strides_it[0] = -dst_strides_it[0];
+    }
+
+    /* Get the function to do the casting */
+    if (PyMicArray_GetDTypeTransferFunction(device, aligned,
+                        src_strides_it[0], dst_strides_it[0],
+                        src_dtype, dst_dtype,
+                        0,
+                        &stransfer, &transferdata,
+                        &needs_api) != NPY_SUCCEED) {
+        return -1;
+    }
+
+    if (!needs_api) {
+        NPY_BEGIN_THREADS;
+    }
+
+    NPY_RAW_ITER_START(idim, ndim, coord, shape_it) {
+        /* Process the innermost dimension */
+        stransfer(dst_data, dst_strides_it[0], src_data, src_strides_it[0],
+                    shape_it[0], src_itemsize, transferdata, device);
+    } NPY_RAW_ITER_TWO_NEXT(idim, ndim, coord, shape_it,
+                            dst_data, dst_strides_it,
+                            src_data, src_strides_it);
+
+    NPY_END_THREADS;
+
+    NPY_AUXDATA_FREE(transferdata);
+
+    return (needs_api && PyErr_Occurred()) ? -1 : 0;
 }
 
 /*
@@ -914,7 +610,7 @@ raw_array_assign_device_array(int ndim, npy_intp *shape,
     NPY_BEGIN_THREADS_DEF;
 
     /* Use raw iteration with no heap allocation */
-    if (PyArray_PrepareTwoRawArrayIter(
+    if (PyMicArray_PrepareTwoRawArrayIter(
                     ndim, shape,
                     dst_data, dst_strides,
                     src_data, src_strides,
@@ -1029,7 +725,275 @@ PyMicArray_AssignArray(PyMicArrayObject *dst, PyMicArrayObject *src,
                     PyMicArrayObject *wheremask,
                     NPY_CASTING casting)
 {
-    //TODO: implement
+    int copied_src = 0;
+
+    npy_intp src_strides[NPY_MAXDIMS];
+
+    /* Use array_assign_scalar if 'src' NDIM is 0 */
+    if (PyMicArray_NDIM(src) == 0) {
+        return PyMicArray_AssignRawScalar(
+                            dst, PyMicArray_DESCR(src), PyMicArray_DATA(src),
+                            PyMicArray_DEVICE(src) ,wheremask, casting);
+    }
+
+    /* Use assign from device if device if different */
+    if (PyMicArray_DEVICE(dst) != PyMicArray_DEVICE(src)) {
+        /* TODO: consider where mask case */
+        return PyMicArray_AssignArrayFromDevice(dst, src, casting);
+    }
+
+    /*
+     * Performance fix for expressions like "a[1000:6000] += x".  In this
+     * case, first an in-place add is done, followed by an assignment,
+     * equivalently expressed like this:
+     *
+     *   tmp = a[1000:6000]   # Calls array_subscript in mapping.c
+     *   np.add(tmp, x, tmp)
+     *   a[1000:6000] = tmp   # Calls array_assign_subscript in mapping.c
+     *
+     * In the assignment the underlying data type, shape, strides, and
+     * data pointers are identical, but src != dst because they are separately
+     * generated slices.  By detecting this and skipping the redundant
+     * copy of values to themselves, we potentially give a big speed boost.
+     *
+     * Note that we don't call EquivTypes, because usually the exact same
+     * dtype object will appear, and we don't want to slow things down
+     * with a complicated comparison.  The comparisons are ordered to
+     * try and reject this with as little work as possible.
+     */
+    if (PyMicArray_DATA(src) == PyMicArray_DATA(dst) &&
+                        PyMicArray_DESCR(src) == PyMicArray_DESCR(dst) &&
+                        PyMicArray_NDIM(src) == PyMicArray_NDIM(dst) &&
+                        PyArray_CompareLists(PyMicArray_DIMS(src),
+                                             PyMicArray_DIMS(dst),
+                                             PyMicArray_NDIM(src)) &&
+                        PyArray_CompareLists(PyMicArray_STRIDES(src),
+                                             PyMicArray_STRIDES(dst),
+                                             PyMicArray_NDIM(src))) {
+        /*printf("Redundant copy operation detected\n");*/
+        return 0;
+    }
+
+    if (PyMicArray_FailUnlessWriteable(dst, "assignment destination") < 0) {
+        goto fail;
+    }
+
+    /* Check the casting rule */
+    if (!PyArray_CanCastTypeTo(PyMicArray_DESCR(src),
+                                PyMicArray_DESCR(dst), casting)) {
+        PyObject *errmsg;
+        errmsg = PyUString_FromString("Cannot cast scalar from ");
+        PyUString_ConcatAndDel(&errmsg,
+                PyObject_Repr((PyObject *)PyMicArray_DESCR(src)));
+        PyUString_ConcatAndDel(&errmsg,
+                PyUString_FromString(" to "));
+        PyUString_ConcatAndDel(&errmsg,
+                PyObject_Repr((PyObject *)PyMicArray_DESCR(dst)));
+        PyUString_ConcatAndDel(&errmsg,
+                PyUString_FromFormat(" according to the rule %s",
+                        npy_casting_to_string(casting)));
+        PyErr_SetObject(PyExc_TypeError, errmsg);
+        Py_DECREF(errmsg);
+        goto fail;
+    }
+
+    /*
+     * When ndim is 1 and the strides point in the same direction,
+     * the lower-level inner loop handles copying
+     * of overlapping data. For bigger ndim and opposite-strided 1D
+     * data, we make a temporary copy of 'src' if 'src' and 'dst' overlap.'
+     */
+    if (((PyMicArray_NDIM(dst) == 1 && PyMicArray_NDIM(src) >= 1 &&
+                    PyMicArray_STRIDES(dst)[0] *
+                            PyMicArray_STRIDES(src)[PyMicArray_NDIM(src) - 1] < 0) ||
+                    PyMicArray_NDIM(dst) > 1) && arrays_overlap(src, dst)) {
+        PyMicArrayObject *tmp;
+
+        /*
+         * Allocate a temporary copy array.
+         */
+        tmp = (PyMicArrayObject *)PyMicArray_NewLikeArray(
+                                        PyMicArray_DEVICE(dst),
+                                        (PyArrayObject *) dst,
+                                        NPY_KEEPORDER, NULL, 0);
+        if (tmp == NULL) {
+            goto fail;
+        }
+
+        if (PyMicArray_AssignArray(tmp, src, NULL, NPY_UNSAFE_CASTING) < 0) {
+            Py_DECREF(tmp);
+            goto fail;
+        }
+
+        src = tmp;
+        copied_src = 1;
+    }
+
+    /* Broadcast 'src' to 'dst' for raw iteration */
+    if (PyMicArray_NDIM(src) > PyMicArray_NDIM(dst)) {
+        int ndim_tmp = PyMicArray_NDIM(src);
+        npy_intp *src_shape_tmp = PyMicArray_DIMS(src);
+        npy_intp *src_strides_tmp = PyMicArray_STRIDES(src);
+        /*
+         * As a special case for backwards compatibility, strip
+         * away unit dimensions from the left of 'src'
+         */
+        while (ndim_tmp > PyMicArray_NDIM(dst) && src_shape_tmp[0] == 1) {
+            --ndim_tmp;
+            ++src_shape_tmp;
+            ++src_strides_tmp;
+        }
+
+        if (broadcast_strides(PyMicArray_NDIM(dst), PyMicArray_DIMS(dst),
+                    ndim_tmp, src_shape_tmp,
+                    src_strides_tmp, "input array",
+                    src_strides) < 0) {
+            goto fail;
+        }
+    }
+    else {
+        if (broadcast_strides(PyMicArray_NDIM(dst), PyMicArray_DIMS(dst),
+                    PyMicArray_NDIM(src), PyMicArray_DIMS(src),
+                    PyMicArray_STRIDES(src), "input array",
+                    src_strides) < 0) {
+            goto fail;
+        }
+    }
+
+    if (wheremask == NULL) {
+        /* A straightforward value assignment */
+        /* Do the assignment with raw array iteration */
+        if (raw_array_assign_array(PyMicArray_DEVICE(dst),
+                PyMicArray_NDIM(dst), PyMicArray_DIMS(dst),
+                PyMicArray_DESCR(dst), PyMicArray_DATA(dst), PyMicArray_STRIDES(dst),
+                PyMicArray_DESCR(src), PyMicArray_DATA(src), src_strides) < 0) {
+            goto fail;
+        }
+    }
+    else {
+        npy_intp wheremask_strides[NPY_MAXDIMS];
+
+        /* Broadcast the wheremask to 'dst' for raw iteration */
+        if (broadcast_strides(PyMicArray_NDIM(dst), PyMicArray_DIMS(dst),
+                    PyMicArray_NDIM(wheremask), PyMicArray_DIMS(wheremask),
+                    PyMicArray_STRIDES(wheremask), "where mask",
+                    wheremask_strides) < 0) {
+            goto fail;
+        }
+
+        /* A straightforward where-masked assignment */
+         /* Do the masked assignment with raw array iteration */
+         if (raw_array_wheremasked_assign_array(
+                 PyMicArray_NDIM(dst), PyMicArray_DIMS(dst),
+                 PyMicArray_DESCR(dst), PyMicArray_DATA(dst), PyMicArray_STRIDES(dst),
+                 PyMicArray_DESCR(src), PyMicArray_DATA(src), src_strides,
+                 PyMicArray_DESCR(wheremask), PyMicArray_DATA(wheremask),
+                         wheremask_strides) < 0) {
+             goto fail;
+         }
+    }
+
+    if (copied_src) {
+        Py_DECREF(src);
+    }
+    return 0;
+
+fail:
+    if (copied_src) {
+        Py_DECREF(src);
+    }
+    return -1;
+}
+
+static int
+_AssignArrayFromAnotherDevice(PyMicArrayObject *dst, PyArrayObject *src,
+                                    int device, NPY_CASTING casting)
+{
+    int copied_src = 0;
+    int host_device = CPU_DEVICE;
+
+    npy_intp src_strides[NPY_MAXDIMS];
+
+    /* Use array_assign_scalar if 'src' NDIM is 0 */
+    if (PyArray_NDIM(src) == 0) {
+        return PyMicArray_AssignRawScalar(
+                            dst, PyArray_DESCR(src), PyArray_DATA(src),
+                            device,
+                            NULL, casting);
+    }
+
+    if (PyMicArray_FailUnlessWriteable(dst, "assignment destination") < 0) {
+        goto fail;
+    }
+
+    /* Check the casting rule */
+    if (!check_casting(PyMicArray_DESCR(dst), PyArray_DESCR(src), casting)){
+        goto fail;
+    }
+
+    /*
+     * When source dtype is not equal dest dtype,
+     * we make a temporary copy of 'src'
+     */
+    if (PyArray_TYPE(src) != PyMicArray_TYPE(dst)) {
+        if (device == host_device) {
+            PyArrayObject *tmp;
+
+            /*
+            * Allocate a temporary copy array.
+            */
+            tmp = (PyArrayObject *)PyArray_NewLikeArray((PyArrayObject *) dst,
+                                            NPY_KEEPORDER, NULL, 0);
+            if (tmp == NULL) {
+                goto fail;
+            }
+
+            if (PyArray_CopyInto(tmp, src) < 0) {
+                Py_DECREF(tmp);
+                goto fail;
+            }
+            src = tmp;
+        }
+        else {
+            PyMicArrayObject *tmp;
+
+            tmp = (PyMicArrayObject *)PyMicArray_NewLikeArray(
+                                            device,
+                                            (PyArrayObject *) dst,
+                                            NPY_KEEPORDER, NULL, 0);
+            if (PyMicArray_CopyInto(tmp, (PyMicArrayObject *)src) < 0) {
+                Py_DECREF(tmp);
+                goto fail;
+            }
+            src = (PyArrayObject *)tmp;
+        }
+        copied_src = 1;
+    }
+
+    /* Broadcast 'src' to 'dst' for raw iteration */
+    if (!broadcast_array_strides((PyArrayObject *) dst, src, src_strides)) {
+        goto fail;
+    }
+
+
+    /* A straightforward value assignment */
+    /* Do the assignment with raw array iteration */
+    if (raw_array_assign_device_array(PyMicArray_NDIM(dst), PyMicArray_DIMS(dst),
+                PyMicArray_DESCR(dst),
+                PyMicArray_DEVICE(dst), PyMicArray_BYTES(dst), PyMicArray_STRIDES(dst),
+                device, PyArray_BYTES(src), src_strides) < 0) {
+        goto fail;
+    }
+
+    if (copied_src) {
+        Py_DECREF(src);
+    }
+    return 0;
+
+fail:
+    if (copied_src) {
+        Py_DECREF(src);
+    }
     return -1;
 }
 
@@ -1048,79 +1012,14 @@ NPY_NO_EXPORT int
 PyMicArray_AssignArrayFromHost(PyMicArrayObject *dst, PyArrayObject *src,
                     NPY_CASTING casting)
 {
-    int copied_src = 0, host_device;
+    return _AssignArrayFromAnotherDevice(dst, src, CPU_DEVICE, casting);
+}
 
-    npy_intp src_strides[NPY_MAXDIMS];
-
-    /* Use array_assign_scalar if 'src' NDIM is 0 */
-    if (PyArray_NDIM(src) == 0) {
-        return PyMicArray_AssignRawScalar(
-                            dst, PyArray_DESCR(src), PyArray_DATA(src),
-                            CPU_DEVICE,
-                            NULL, casting);
-    }
-
-    if (PyMicArray_FailUnlessWriteable(dst, "assignment destination") < 0) {
-        goto fail;
-    }
-
-    /* Check the casting rule */
-    if (!check_casting(PyMicArray_DESCR(dst), PyArray_DESCR(src), casting)){
-        goto fail;
-    }
-
-    /*
-     * When source dtype is not equal dest dtype,
-     * we make a temporary copy of 'src'
-     */
-    if (PyArray_TYPE(src) != PyMicArray_TYPE(dst)) {
-        PyArrayObject *tmp;
-
-        /*
-         * Allocate a temporary copy array.
-         */
-        tmp = (PyArrayObject *)PyArray_NewLikeArray((PyArrayObject *) dst,
-                                        NPY_KEEPORDER, NULL, 0);
-        if (tmp == NULL) {
-            goto fail;
-        }
-
-        if (PyArray_CopyInto(tmp, src) < 0) {
-            Py_DECREF(tmp);
-            goto fail;
-        }
-
-        src = tmp;
-        copied_src = 1;
-    }
-
-    /* Broadcast 'src' to 'dst' for raw iteration */
-    if (!broadcast_array_strides((PyArrayObject *) dst, src, src_strides)) {
-        goto fail;
-    }
-
-
-    /* A straightforward value assignment */
-    /* Do the assignment with raw array iteration */
-    host_device = omp_get_initial_device();
-    if (raw_array_assign_device_array(PyMicArray_NDIM(dst), PyMicArray_DIMS(dst),
-                PyMicArray_DESCR(dst),
-                PyMicArray_DEVICE(dst), PyMicArray_BYTES(dst), PyMicArray_STRIDES(dst),
-                host_device, PyArray_BYTES(src), src_strides) < 0) {
-        goto fail;
-    }
-
-
-    if (copied_src) {
-        Py_DECREF(src);
-    }
-    return 0;
-
-fail:
-    if (copied_src) {
-        Py_DECREF(src);
-    }
-    return -1;
+NPY_NO_EXPORT int
+PyMicArray_AssignArrayFromDevice(PyMicArrayObject *dst, PyMicArrayObject *src,
+                    NPY_CASTING casting) {
+    return _AssignArrayFromAnotherDevice(dst, (PyArrayObject *)src,
+                    PyMicArray_DEVICE(src), casting);
 }
 
 /*

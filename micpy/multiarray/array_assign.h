@@ -35,6 +35,10 @@ PyMicArray_AssignArrayFromHost(PyMicArrayObject *dst, PyArrayObject *src,
                     NPY_CASTING casting);
 
 NPY_NO_EXPORT int
+PyMicArray_AssignArrayFromDevice(PyMicArrayObject *dst, PyMicArrayObject *src,
+                    NPY_CASTING casting);
+
+NPY_NO_EXPORT int
 PyMicArray_AssignRawScalar(PyMicArrayObject *dst,
                         PyArray_Descr *src_dtype, char *src_data, int src_device,
                         PyMicArrayObject *wheremask,
@@ -102,7 +106,7 @@ raw_array_is_aligned(int ndim, char *data, npy_intp *strides, int alignment);
 
 /* Returns 1 if the arrays have overlapping data, 0 otherwise */
 NPY_NO_EXPORT int
-arrays_overlap(PyArrayObject *arr1, PyArrayObject *arr2);
+arrays_overlap(PyMicArrayObject *arr1, PyMicArrayObject *arr2);
 
 
 #endif

@@ -332,6 +332,7 @@ can_cast_scalar_to(PyArray_Descr *scal_type, char *scal_data, int scal_device,
 
     /* An aligned memory buffer large enough to hold any type */
     npy_longlong value[4];
+    npy_longlong temp_value[4];
 
     /*
      * If the two dtypes are actually references to the same object
@@ -352,24 +353,14 @@ can_cast_scalar_to(PyArray_Descr *scal_type, char *scal_data, int scal_device,
 
     swap = !PyArray_ISNBO(scal_type->byteorder);
 
-    if (scal_device == CPU_DEVICE) {
-        scal_type->f->copyswap(&value, scal_data, swap, NULL);
-
-        type_num = min_scalar_type_num(&value, scal_type->type_num,
-                                        &is_small_unsigned);
+    if (scal_device != CPU_DEVICE) {
+        target_memcpy(&temp_value, scal_data, scal_type->elsize,
+                            CPU_DEVICE, scal_device);
+        scal_data = (char *) &temp_value;
     }
-    else {
-        int typenum = scal_type->type_num;
-        void *target_data = target_alloc(sizeof(npy_longlong)*4, scal_device);
-        PyMicArray_GetArrFuncs(typenum)->
-                    copyswap(target_data, scal_data, swap, scal_device);
-        #pragma omp target device(scal_device) map(to: target_data, typenum) \
-                                          map(from: type_num, is_small_unsigned)
-        type_num = min_scalar_type_num(target_data, typenum,
-                                        &is_small_unsigned);
-        target_free(target_data, scal_device);
-    }
-
+    scal_type->f->copyswap(&value, scal_data, swap, NULL);
+    type_num = min_scalar_type_num(&value, scal_type->type_num,
+                                &is_small_unsigned);
     /*
      * If we've got a small unsigned scalar, and the 'to' type
      * is not unsigned, then make it signed to allow the value
@@ -407,6 +398,13 @@ PyMicArray_CanCastArrayTo(PyMicArrayObject *arr, PyArray_Descr *to,
 {
     PyArray_Descr *from = PyMicArray_DESCR(arr);
 
+    /* If it's a scalar, check the value */
+    if (PyMicArray_NDIM(arr) == 0 && !PyMicArray_HASFIELDS(arr)) {
+        return can_cast_scalar_to(from, PyMicArray_DATA(arr),
+                                    PyMicArray_DEVICE(arr), to, casting);
+    }
+
+    /* Otherwise, use the standard rules */
     return PyArray_CanCastTypeTo(from, to, casting);
 }
 

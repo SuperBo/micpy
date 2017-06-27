@@ -216,4 +216,86 @@ mpy_bswap8_unaligned(char * x)
 
 #pragma omp end declare target
 
+/* Start raw iteration */
+#define NPY_RAW_ITER_START(idim, ndim, coord, shape) \
+        memset((coord), 0, (ndim) * sizeof(coord[0])); \
+        do {
+
+/* Increment to the next n-dimensional coordinate for one raw array */
+#define NPY_RAW_ITER_ONE_NEXT(idim, ndim, coord, shape, data, strides) \
+            for ((idim) = 1; (idim) < (ndim); ++(idim)) { \
+                if (++(coord)[idim] == (shape)[idim]) { \
+                    (coord)[idim] = 0; \
+                    (data) -= ((shape)[idim] - 1) * (strides)[idim]; \
+                } \
+                else { \
+                    (data) += (strides)[idim]; \
+                    break; \
+                } \
+            } \
+        } while ((idim) < (ndim))
+
+/* Increment to the next n-dimensional coordinate for two raw arrays */
+#define NPY_RAW_ITER_TWO_NEXT(idim, ndim, coord, shape, \
+                              dataA, stridesA, dataB, stridesB) \
+            for ((idim) = 1; (idim) < (ndim); ++(idim)) { \
+                if (++(coord)[idim] == (shape)[idim]) { \
+                    (coord)[idim] = 0; \
+                    (dataA) -= ((shape)[idim] - 1) * (stridesA)[idim]; \
+                    (dataB) -= ((shape)[idim] - 1) * (stridesB)[idim]; \
+                } \
+                else { \
+                    (dataA) += (stridesA)[idim]; \
+                    (dataB) += (stridesB)[idim]; \
+                    break; \
+                } \
+            } \
+        } while ((idim) < (ndim))
+
+/* Increment to the next n-dimensional coordinate for three raw arrays */
+#define NPY_RAW_ITER_THREE_NEXT(idim, ndim, coord, shape, \
+                              dataA, stridesA, \
+                              dataB, stridesB, \
+                              dataC, stridesC) \
+            for ((idim) = 1; (idim) < (ndim); ++(idim)) { \
+                if (++(coord)[idim] == (shape)[idim]) { \
+                    (coord)[idim] = 0; \
+                    (dataA) -= ((shape)[idim] - 1) * (stridesA)[idim]; \
+                    (dataB) -= ((shape)[idim] - 1) * (stridesB)[idim]; \
+                    (dataC) -= ((shape)[idim] - 1) * (stridesC)[idim]; \
+                } \
+                else { \
+                    (dataA) += (stridesA)[idim]; \
+                    (dataB) += (stridesB)[idim]; \
+                    (dataC) += (stridesC)[idim]; \
+                    break; \
+                } \
+            } \
+        } while ((idim) < (ndim))
+
+/* Increment to the next n-dimensional coordinate for four raw arrays */
+#define NPY_RAW_ITER_FOUR_NEXT(idim, ndim, coord, shape, \
+                              dataA, stridesA, \
+                              dataB, stridesB, \
+                              dataC, stridesC, \
+                              dataD, stridesD) \
+            for ((idim) = 1; (idim) < (ndim); ++(idim)) { \
+                if (++(coord)[idim] == (shape)[idim]) { \
+                    (coord)[idim] = 0; \
+                    (dataA) -= ((shape)[idim] - 1) * (stridesA)[idim]; \
+                    (dataB) -= ((shape)[idim] - 1) * (stridesB)[idim]; \
+                    (dataC) -= ((shape)[idim] - 1) * (stridesC)[idim]; \
+                    (dataD) -= ((shape)[idim] - 1) * (stridesD)[idim]; \
+                } \
+                else { \
+                    (dataA) += (stridesA)[idim]; \
+                    (dataB) += (stridesB)[idim]; \
+                    (dataC) += (stridesC)[idim]; \
+                    (dataD) += (stridesD)[idim]; \
+                    break; \
+                } \
+            } \
+        } while ((idim) < (ndim))
+
+
 #endif
