@@ -192,19 +192,4 @@ blas_stride(npy_intp stride, unsigned itemsize)
     return 0;
 }
 
-/* Memset on target */
-static NPY_INLINE void *
-target_memset(void *ptr, int value, size_t num, int device_num)
-{
-    #pragma omp target device(device_num) map(to: ptr, value, num)
-    memset(ptr, value, num);
-    return ptr;
-}
-
-#define target_alloc omp_target_alloc
-#define target_malloc omp_target_alloc
-#define target_free omp_target_free
-#define target_memcpy(dst, src, len, dst_dev, src_dev) \
-                omp_target_memcpy(dst, src, len, 0, 0, dst_dev, src_dev)
-
 #endif

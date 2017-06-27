@@ -18,6 +18,7 @@
 #include "multiarraymodule.h"
 #include "creators.h"
 #include "convert.h"
+#include "convert_datatype.h"
 #include "array_assign.h"
 //#include "numpymemoryview.h"
 //#include "lowlevel_strided_loops.h"
@@ -508,6 +509,10 @@ PyMicArray_NewLikeArray(int device, PyArrayObject *prototype, NPY_ORDER order,
             break;
     }
 
+    if (PyArray_Check(prototype)) {
+        subok = 0;
+    }
+
     /* If it's not KEEPORDER, this is simple */
     if (order != NPY_KEEPORDER) {
         ret = PyMicArray_NewFromDescr(device,
@@ -623,7 +628,7 @@ PyMicArray_FromArray(PyArrayObject *arr, PyArray_Descr *newtype, int device, int
 {
     PyMicArrayObject *ret = NULL;
     int itemsize;
-    int copy = 0;
+    int copy = 0, can_cast = 0;
     int arrflags;
     PyArray_Descr *oldtype;
     NPY_CASTING casting = NPY_SAFE_CASTING;
@@ -657,7 +662,14 @@ PyMicArray_FromArray(PyArrayObject *arr, PyArray_Descr *newtype, int device, int
     }
 
     /* Raise an error if the casting rule isn't followed */
-    if (!PyArray_CanCastArrayTo(arr, newtype, casting)) {
+    if (PyMicArray_Check(arr)) {
+        can_cast = PyMicArray_CanCastArrayTo(
+                        (PyMicArrayObject *)arr, newtype, casting);
+    }
+    else {
+        can_cast = PyArray_CanCastArrayTo(arr, newtype, casting);
+    }
+    if (!can_cast) {
         PyObject *errmsg;
         PyArray_Descr *arr_descr = NULL;
         PyObject *arr_descr_repr = NULL;

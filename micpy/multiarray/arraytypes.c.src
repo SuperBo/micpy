@@ -347,7 +347,7 @@ string_to_long_double(PyObject*op)
     s = PyBytes_AsString(b);
     if (s) {
         errno = 0;
-        temp = NumPyOS_ascii_strtold(s, &end);
+        temp = strtold(s, &end);
         if (end==s || *end) {
             PyErr_Format(PyExc_ValueError,
                          "invalid literal for long double: %s",
