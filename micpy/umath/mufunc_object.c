@@ -52,6 +52,8 @@
 #include "reduction.h"
 
 /* Some useful macros */
+#define CPU_DEVICE (omp_get_initial_device())
+
 #define PyMicArray_TRIVIAL_PAIR_ITERATION_STRIDE(size, arr) ( \
                         size == 1 ? 0 : ((PyMicArray_NDIM(arr) == 1) ? \
                                           PyMicArray_STRIDE(arr, 0) : \
@@ -388,6 +390,35 @@ _set_out_array(PyObject *obj, PyMicArrayObject **store)
     return -1;
 }
 
+static void
+ufunc_pre_typeresolver(PyUFuncObject *ufunc, PyMicArrayObject **op,
+                            void **ptrs, npy_longlong *buf, int bufsize)
+{
+    int i;
+    for (i = 0; i < ufunc->nin; ++i) {
+        if (PyMicArray_NDIM(op[i]) == 0) {
+            void *ptr = buf + (i * bufsize);
+            ptrs[i] = PyMicArray_DATA(op[i]);
+            target_memcpy(ptr, PyMicArray_DATA(op[i]),
+                PyMicArray_ITEMSIZE(op[i]), CPU_DEVICE, PyMicArray_DEVICE(op[i]));
+            PyMicArray_DATA(op[i]) = ptr;
+        }
+    }
+}
+
+static void
+ufunc_post_typeresolver(PyUFuncObject *ufunc, PyMicArrayObject **op,
+                            void **ptrs)
+{
+    int i;
+    for (i = 0; i < ufunc->nin; ++i) {
+        if (PyMicArray_NDIM(op[i]) == 0) {
+            PyMicArray_DATA(op[i]) = ptrs[i];
+        }
+    }
+}
+
+
 /********* GENERIC UFUNC USING ITERATOR *********/
 
 /*
@@ -428,7 +459,7 @@ get_ufunc_arguments(PyUFuncObject *ufunc,
     int any_flexible = 0, any_object = 0, any_flexible_userloops = 0;
     int has_sig = 0;
 
-    ufunc_name = ufunc->name ? ufunc->name : "<unnamed ufunc>";
+    ufunc_name = _get_ufunc_name(ufunc);
 
     *out_extobj = NULL;
     *out_typetup = NULL;
@@ -459,13 +490,9 @@ get_ufunc_arguments(PyUFuncObject *ufunc,
             out_op[i] = (PyMicArrayObject *)PyMicArray_FromArray(
                             (PyArrayObject *)obj, NULL, device, 0);
         }
-        else if (PyArray_IsScalar(obj, Generic)) {
-            /*
-             * TODO: Convert scalar to PyMicArray
-             */
-        }
         else {
-            out_op[i] = NULL;
+            out_op[i] = (PyMicArrayObject *)PyMicArray_FromAny(device, obj,
+                                    NULL, 0, 0, 0, NULL);
         }
 
         if (out_op[i] == NULL) {
@@ -1592,6 +1619,10 @@ PyMUFunc_GeneralizedFunction(PyUFuncObject *ufunc,
     /* When provided, extobj and typetup contain borrowed references */
     PyObject *extobj = NULL, *type_tup = NULL;
 
+    /* backup data to make PyMicArray work with PyArray type resolver */
+    npy_longlong scal_buffer[4*ufunc->nin];
+    void *scal_ptrs[ufunc->nin];
+
     if (ufunc == NULL) {
         PyErr_SetString(PyExc_ValueError, "function not supported");
         return -1;
@@ -1820,9 +1851,12 @@ PyMUFunc_GeneralizedFunction(PyUFuncObject *ufunc,
 
     NPY_UF_DBG_PRINT("Finding inner loop\n");
 
+    /* Work around to live with numpy type_resolver */
+    ufunc_pre_typeresolver(ufunc, op, scal_ptrs, scal_buffer, 4);
 
     retval = ufunc->type_resolver(ufunc, casting,
                             (PyArrayObject **)op, type_tup, dtypes);
+    ufunc_post_typeresolver(ufunc, op, scal_ptrs);
     if (retval < 0) {
         goto fail;
     }
@@ -2171,6 +2205,10 @@ PyMUFunc_GenericFunction(PyUFuncObject *ufunc,
      */
     PyObject *arr_prep_args = NULL;
 
+    /* backup data to make PyMicArray work with PyArray type resolver */
+    npy_longlong scal_buffer[4*ufunc->nin];
+    void *scal_ptrs[ufunc->nin];
+
     int trivial_loop_ok = 0;
 
     NPY_ORDER order = NPY_KEEPORDER;
@@ -2192,7 +2230,7 @@ PyMUFunc_GenericFunction(PyUFuncObject *ufunc,
     nout = ufunc->nout;
     nop = nin + nout;
 
-    ufunc_name = ufunc->name ? ufunc->name : "<unnamed ufunc>";
+    ufunc_name = _get_ufunc_name(ufunc);
 
     NPY_UF_DBG_PRINT1("\nEvaluating ufunc %s\n", ufunc_name);
 
@@ -2218,7 +2256,6 @@ PyMUFunc_GenericFunction(PyUFuncObject *ufunc,
         goto fail;
     }
 
-
     /*
      * Use the masked loop if a wheremask was specified.
      */
@@ -2232,8 +2269,12 @@ PyMUFunc_GenericFunction(PyUFuncObject *ufunc,
         goto fail;
     }
 
+    /* Work around to live with numpy type_resolver */
+    ufunc_pre_typeresolver(ufunc, op, scal_ptrs, scal_buffer, 4);
+
     retval = ufunc->type_resolver(ufunc, casting,
                             (PyArrayObject **)op, type_tup, dtypes);
+    ufunc_post_typeresolver(ufunc, op, scal_ptrs);
     if (retval < 0) {
         goto fail;
     }
