@@ -72,6 +72,9 @@ PyMicArray_CopyAsFlat(PyMicArrayObject *dst, PyMicArrayObject *src, NPY_ORDER or
 NPY_NO_EXPORT PyObject *
 PyMicArray_EnsureArray(PyObject *op, int device);
 
+NPY_NO_EXPORT PyObject *
+PyMicArray_CheckAxis(PyMicArrayObject *arr, int *axis, int flags);
+
 /* Some utilities function */
 NPY_NO_EXPORT void
 _array_fill_strides(npy_intp *strides, npy_intp *dims, int nd, size_t itemsize,

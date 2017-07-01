@@ -11,9 +11,11 @@
 
 #include "npy_config.h"
 
+#define _MICARRAYMODULE
+#include "arrayobject.h"
+#include "creators.h"
 #include "common.h"
-//#include "number.h"
-
+#include "number.h"
 #include "calculation.h"
 #include "array_assign.h"
 
@@ -60,7 +62,18 @@ PyMicArray_ArgMin(PyMicArrayObject *op, int axis, PyMicArrayObject *out)
 NPY_NO_EXPORT PyObject *
 PyMicArray_Max(PyMicArrayObject *ap, int axis, PyMicArrayObject *out)
 {
-    return NULL;
+    PyMicArrayObject *arr;
+    PyObject *ret;
+
+    arr = (PyMicArrayObject *)PyMicArray_CheckAxis(ap, &axis, 0);
+    if (arr == NULL) {
+        return NULL;
+    }
+
+    ret = PyMicArray_GenericReduceFunction(arr, n_ops.maximum, axis,
+                                        PyMicArray_DESCR(arr)->type_num, out);
+    Py_DECREF(arr);
+    return ret;
 }
 
 /*NUMPY_API
@@ -69,7 +82,18 @@ PyMicArray_Max(PyMicArrayObject *ap, int axis, PyMicArrayObject *out)
 NPY_NO_EXPORT PyObject *
 PyMicArray_Min(PyMicArrayObject *ap, int axis, PyMicArrayObject *out)
 {
-    return NULL;
+    PyMicArrayObject *arr;
+    PyObject *ret;
+
+    arr=(PyMicArrayObject *)PyMicArray_CheckAxis(ap, &axis, 0);
+    if (arr == NULL) {
+        return NULL;
+    }
+
+    ret = PyMicArray_GenericReduceFunction(arr, n_ops.minimum, axis,
+                                        PyMicArray_DESCR(arr)->type_num, out);
+    Py_DECREF(arr);
+    return ret;
 }
 
 /*NUMPY_API

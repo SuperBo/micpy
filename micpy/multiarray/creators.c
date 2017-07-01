@@ -20,6 +20,7 @@
 #include "convert.h"
 #include "convert_datatype.h"
 #include "array_assign.h"
+#include "shape.h"
 //#include "numpymemoryview.h"
 //#include "lowlevel_strided_loops.h"
 #include "mpy_lowlevel_strided_loops.h"
@@ -620,6 +621,42 @@ PyMicArray_FromAny(int device, PyObject *op, PyArray_Descr *newtype, int min_dep
 }
 
 /*NUMPY_API
+ * steals a reference to descr -- accepts NULL
+ */
+NPY_NO_EXPORT PyObject *
+PyMicArray_CheckFromAny(int device,
+                    PyObject *op, PyArray_Descr *descr, int min_depth,
+                    int max_depth, int requires, PyObject *context)
+{
+    PyObject *obj;
+    if (requires & NPY_ARRAY_NOTSWAPPED) {
+        if (!descr && PyMicArray_Check(op) &&
+            !PyArray_ISNBO(PyMicArray_DESCR((PyMicArrayObject *)op)->byteorder)) {
+            descr = PyArray_DescrNew(PyArray_DESCR((PyArrayObject *)op));
+        }
+        else if (descr && !PyArray_ISNBO(descr->byteorder)) {
+            PyArray_DESCR_REPLACE(descr);
+        }
+        if (descr && descr->byteorder != NPY_IGNORE) {
+            descr->byteorder = NPY_NATIVE;
+        }
+    }
+
+    obj = PyMicArray_FromAny(device, op, descr, min_depth, max_depth, requires, context);
+    if (obj == NULL) {
+        return NULL;
+    }
+    if ((requires & NPY_ARRAY_ELEMENTSTRIDES) &&
+            !PyMicArray_ElementStrides(obj)) {
+        PyObject *ret;
+        ret = PyMicArray_NewCopy((PyMicArrayObject *)obj, NPY_ANYORDER);
+        Py_DECREF(obj);
+        obj = ret;
+    }
+    return obj;
+}
+
+/*NUMPY_API
  * steals reference to newtype --- acc. NULL
  * arr can be PyMicArray or PyArray
  */
@@ -903,6 +940,61 @@ PyMicArray_MoveInto(PyMicArrayObject *dst, PyMicArrayObject *src)
     return PyMicArray_AssignArray(dst, src, NULL, NPY_UNSAFE_CASTING);
 }
 
+/*MICPY_API
+ * PyMicArray_CheckAxis
+ *
+ * check that axis is valid
+ * convert 0-d arrays to 1-d arrays
+ */
+NPY_NO_EXPORT PyObject *
+PyMicArray_CheckAxis(PyMicArrayObject *arr, int *axis, int flags)
+{
+    PyObject *temp1, *temp2;
+    int n = PyMicArray_NDIM(arr);
+
+    if (*axis == NPY_MAXDIMS || n == 0) {
+        if (n != 1) {
+            temp1 = PyMicArray_Ravel(arr,0);
+            if (temp1 == NULL) {
+                *axis = 0;
+                return NULL;
+            }
+            if (*axis == NPY_MAXDIMS) {
+                *axis = PyMicArray_NDIM(temp1)-1;
+            }
+        }
+        else {
+            temp1 = (PyObject *)arr;
+            Py_INCREF(temp1);
+            *axis = 0;
+        }
+        if (!flags && *axis == 0) {
+            return temp1;
+        }
+    }
+    else {
+        temp1 = (PyObject *)arr;
+        Py_INCREF(temp1);
+    }
+    if (flags) {
+        temp2 = PyMicArray_CheckFromAny(PyMicArray_DEVICE(arr),
+                                    (PyObject *)temp1, NULL,
+                                     0, 0, flags, NULL);
+        Py_DECREF(temp1);
+        if (temp2 == NULL) {
+            return NULL;
+        }
+    }
+    else {
+        temp2 = (PyObject *)temp1;
+    }
+    n = PyMicArray_NDIM((PyArrayObject *)temp2);
+    if (check_and_adjust_axis(axis, n) < 0) {
+        Py_DECREF(temp2);
+        return NULL;
+    }
+    return temp2;
+}
 
 /*NUMPY_API
  * Zeros

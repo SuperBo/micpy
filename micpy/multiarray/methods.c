@@ -23,6 +23,7 @@
 #include "methods.h"
 #include "calculation.h"
 #include "multiarraymodule.h"
+#include "number.h"
 
 
 /* NpyArg_ParseKeywords
@@ -68,6 +69,37 @@ forward_ndarray_method(PyArrayObject *self, PyObject *args, PyObject *kwds,
     return NULL;
 }
 
+static PyObject *
+forward_ndarray_reduce(PyMicArrayObject *self, PyObject *args, PyObject *kwds,
+                            PyObject *op)
+{
+    PyObject *ret = NULL, *meth;
+    PyObject *newargs;
+    PyObject *axis = Py_None;
+    PyObject *out = Py_None;
+    PyObject *keepdims = Py_False;
+
+    static char *kwlist[] = {"axis", "out", "keepdims", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|OOO", kwlist,
+                                    &axis, &out, &keepdims))
+        return NULL;
+
+    newargs = PyTuple_Pack(5, self, axis, Py_None, out, keepdims);
+    if (newargs == NULL) {
+        return NULL;
+    }
+
+    meth = PyObject_GetAttrString(op, "reduce");
+    if (meth && PyCallable_Check(meth)) {
+        ret = PyObject_Call(meth, newargs, NULL);
+    }
+
+    Py_DECREF(newargs);
+    Py_DECREF(meth);
+    return ret;
+}
+
 /*
  * Forwards an ndarray method to the function numpy.core._methods.<name>(...),
  * caching the callable in a local static variable. Note that the
@@ -83,6 +115,9 @@ forward_ndarray_method(PyArrayObject *self, PyObject *args, PyObject *kwds,
             } \
         } \
         return forward_ndarray_method(self, args, kwds, callable)
+
+#define MPY_FORWARD_NDARRAY_REDUCE(name) \
+        return forward_ndarray_reduce(self, args, kwds, n_ops.name)
 
 
 static PyObject *
@@ -259,7 +294,7 @@ array_argmax(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O&O&", kwlist,
                                      PyArray_AxisConverter, &axis,
-                                     PyArray_OutputConverter, &out))
+                                     PyMicArray_OutputConverter, &out))
         return NULL;
 
     return PyMicArray_Return((PyMicArrayObject *)PyMicArray_ArgMax(self, axis, out));
@@ -283,15 +318,13 @@ array_argmin(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 static PyObject *
 array_max(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 {
-    //TODO
-    return NULL;
+    MPY_FORWARD_NDARRAY_REDUCE(maximum);
 }
 
 static PyObject *
 array_min(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 {
-    //TODO
-    return NULL;
+    MPY_FORWARD_NDARRAY_REDUCE(minimum);
 }
 
 static PyObject *
@@ -1455,7 +1488,7 @@ NPY_NO_EXPORT PyMethodDef array_methods[] = {
         METH_VARARGS, NULL},
     {"itemset",
         (PyCFunction) array_setscalar,
-        METH_VARARGS, NULL},
+        METH_VARARGS, NULL},*/
     {"max",
         (PyCFunction)array_max,
         METH_VARARGS | METH_KEYWORDS, NULL},
@@ -1465,6 +1498,7 @@ NPY_NO_EXPORT PyMethodDef array_methods[] = {
     {"min",
         (PyCFunction)array_min,
         METH_VARARGS | METH_KEYWORDS, NULL},
+    /*
     {"newbyteorder",
         (PyCFunction)array_newbyteorder,
         METH_VARARGS, NULL},
