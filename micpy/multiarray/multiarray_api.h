@@ -235,10 +235,22 @@ static int _import_pymicarray() {
 #define MpyIter_GetOffInnerStrideArray \
     (*(npy_intp * (*)(MpyIter *)) \
      PyMicArray_API[52])
+#define MpyIter_IsFirstVisit \
+    (*(npy_bool (*)(MpyIter *, int)) \
+     PyMicArray_API[53])
 #define PyMicArray_SetNumericOps \
     (*(int (*)(PyObject *)) \
-     PyMicArray_API[53])
+     PyMicArray_API[54])
 #define PyMicArray_FromScalar \
     (*(PyObject * (*)(PyObject *, PyArray_Descr *, int)) \
-     PyMicArray_API[54])
+     PyMicArray_API[55])
+#define PyMicArray_SetBaseObject \
+    (*(int (*)(PyMicArrayObject *arr, PyObject *obj)) \
+     PyMicArray_API[56])
+#define PyMicArray_SetUpdateIfCopyBase \
+    (*(int (*)(PyMicArrayObject *, PyMicArrayObject *)) \
+     PyMicArray_API[57])
+#define PyMicArray_OutputConverter \
+    ((int (*)(PyObject *, PyMicArrayObject **)) \
+     PyMicArray_API[58])
 #endif

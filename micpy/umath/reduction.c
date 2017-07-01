@@ -16,6 +16,7 @@
 #define NO_IMPORT_ARRAY
 
 #include <numpy/arrayobject.h>
+#include <numpy/ufuncobject.h>
 
 #include "npy_config.h"
 #include "npy_pycompat.h"
@@ -23,8 +24,9 @@
 #define PyMicArray_API_UNIQUE_NAME _mpy_umathmodule_MICARRAY_API
 #define PyMicArray_API_NO_IMPORT
 #include <multiarray/multiarray_api.h>
+#include <multiarray/arrayobject.h>
 
-#include "lowlevel_strided_loops.h"
+#include <multiarray/mpymem_overlap.h>
 #include "reduction.h"
 
 /*
@@ -48,7 +50,7 @@ allocate_reduce_result(PyMicArrayObject *arr, npy_bool *axis_flags,
     int idim, ndim = PyMicArray_NDIM(arr);
 
     if (dtype == NULL) {
-        dtype = PyArray_DTYPE(arr);
+        dtype = PyMicArray_DTYPE(arr);
         Py_INCREF(dtype);
     }
 
@@ -72,6 +74,7 @@ allocate_reduce_result(PyMicArrayObject *arr, npy_bool *axis_flags,
 
     /* Finally, allocate the array */
     return (PyMicArrayObject *)PyMicArray_NewFromDescr(
+                                    PyMicArray_DEVICE(arr),
                                     subok ? Py_TYPE(arr) : &PyMicArray_Type,
                                     dtype, ndim, shape, strides,
                                     NULL, 0, subok ? (PyObject *)arr : NULL);
@@ -156,7 +159,9 @@ conform_reduce_result(int ndim, npy_bool *axis_flags,
     dtype = PyMicArray_DESCR(out);
     Py_INCREF(dtype);
 
-    ret = (PyMicArrayObject *)PyMicArray_NewFromDescr(&PyMicArray_Type,
+    ret = (PyMicArrayObject *)PyMicArray_NewFromDescr(
+                               PyMicArray_DEVICE(out),
+                               &PyMicArray_Type,
                                dtype,
                                ndim, shape,
                                strides,
@@ -177,7 +182,8 @@ conform_reduce_result(int ndim, npy_bool *axis_flags,
         PyMicArrayObject *ret_copy;
 
         ret_copy = (PyMicArrayObject *)PyMicArray_NewLikeArray(
-            (PyMicArrayObject *)ret, NPY_ANYORDER, NULL, 0);
+            PyMicArray_DEVICE(ret),
+            (PyArrayObject *)ret, NPY_ANYORDER, NULL, 0);
         if (ret_copy == NULL) {
             Py_DECREF(ret);
             return NULL;
@@ -433,7 +439,7 @@ PyMicArray_InitializeReduceResult(
  *               with size one.
  * subok       : If true, the result uses the subclass of operand, otherwise
  *               it is always a base class ndarray.
- * assign_identity : If NULL, PyArray_InitializeReduceResult is used, otherwise
+ * assign_identity : If NULL, PyMicArray_InitializeReduceResult is used, otherwise
  *               this function is called to initialize the result to
  *               the reduction's unit.
  * loop        : The loop which does the reduction.
@@ -453,22 +459,22 @@ PyMicArray_InitializeReduceResult(
 NPY_NO_EXPORT PyMicArrayObject *
 PyMUFunc_ReduceWrapper(PyMicArrayObject *operand, PyMicArrayObject *out,
                       PyMicArrayObject *wheremask,
-                      PyMicArray_Descr *operand_dtype,
-                      PyMicArray_Descr *result_dtype,
+                      PyArray_Descr *operand_dtype,
+                      PyArray_Descr *result_dtype,
                       NPY_CASTING casting,
                       npy_bool *axis_flags, int reorderable,
                       int keepdims,
                       int subok,
                       PyMicArray_AssignReduceIdentityFunc *assign_identity,
                       PyMicArray_ReduceLoopFunc *loop,
-                      void *data, npy_intp buffersize, const char *funcname)
+                      PyUFuncObject *ufunc, npy_intp buffersize, const char *funcname)
 {
     PyMicArrayObject *result = NULL, *op_view = NULL;
     npy_intp skip_first_count = 0;
 
     /* Iterator parameters */
-    NpyIter *iter = NULL;
-    PyArrayObject *op[2];
+    MpyIter *iter = NULL;
+    PyMicArrayObject *op[2];
     PyArray_Descr *op_dtypes[2];
     npy_uint32 flags, op_flags[2];
 
@@ -509,7 +515,7 @@ PyMUFunc_ReduceWrapper(PyMicArrayObject *operand, PyMicArrayObject *out,
             goto fail;
         }
 
-        if (assign_identity(result, data) < 0) {
+        if (assign_identity(result, ufunc) < 0) {
             goto fail;
         }
         op_view = operand;
@@ -531,8 +537,8 @@ PyMUFunc_ReduceWrapper(PyMicArrayObject *operand, PyMicArrayObject *out,
     }
 
     /* Set up the iterator */
-    op[0] = (PyArrayObject *) result;
-    op[1] = (PyArrayObject *) op_view;
+    op[0] = (PyMicArrayObject *) result;
+    op[1] = (PyMicArrayObject *) op_view;
     op_dtypes[0] = result_dtype;
     op_dtypes[1] = operand_dtype;
 
@@ -547,32 +553,14 @@ PyMUFunc_ReduceWrapper(PyMicArrayObject *operand, PyMicArrayObject *out,
     op_flags[1] = NPY_ITER_READONLY |
                   NPY_ITER_ALIGNED;
 
-    iter = NpyIter_MultiNew(2, op, flags,
+    iter = MpyIter_MultiNew(2, op, flags,
                             NPY_KEEPORDER, casting,
                             op_flags, op_dtypes);
     if (iter == NULL) {
         goto fail;
     }
 
-    if (NpyIter_GetIterSize(iter) != 0) {
-        NpyIter_IterNextFunc *iternext;
-        char **dataptr;
-        npy_intp *strideptr;
-        npy_intp *countptr;
-        int needs_api, device;
-
-        iternext = NpyIter_GetIterNext(iter, NULL);
-        if (iternext == NULL) {
-            goto fail;
-        }
-        dataptr = NpyIter_GetDataPtrArray(iter);
-        strideptr = NpyIter_GetInnerStrideArray(iter);
-        countptr = NpyIter_GetInnerLoopSizePtr(iter);
-
-        needs_api = NpyIter_IterationNeedsAPI(iter);
-
-        device = PyMicArray_DEVICE(out);
-
+    if (MpyIter_GetIterSize(iter) != 0) {
         /* Straightforward reduction */
         if (loop == NULL) {
             PyErr_Format(PyExc_RuntimeError,
@@ -581,14 +569,12 @@ PyMUFunc_ReduceWrapper(PyMicArrayObject *operand, PyMicArrayObject *out,
             goto fail;
         }
 
-        if (loop(iter, dataptr, strideptr, countptr,
-                        iternext, needs_api, skip_first_count, data, device) < 0) {
-
+        if (loop(iter, skip_first_count, ufunc) < 0) {
             goto fail;
         }
     }
 
-    NpyIter_Deallocate(iter);
+    MpyIter_Deallocate(iter);
     Py_DECREF(op_view);
 
 finish:
@@ -610,7 +596,7 @@ fail:
     Py_XDECREF(result);
     Py_XDECREF(op_view);
     if (iter != NULL) {
-        NpyIter_Deallocate(iter);
+        MpyIter_Deallocate(iter);
     }
 
     return NULL;

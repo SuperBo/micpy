@@ -20,6 +20,7 @@
 #include "templ_common.h"
 
 #include <numpy/npy_common.h>
+#include <mpy_common.h>
 
 #include "nditer.h"
 #include "creators.h"
@@ -767,10 +768,9 @@ MpyIter_HasIndex(MpyIter *iter)
  *          mode is enabled. These checks are the responsibility of
  *          the caller, and should be done outside of any inner loops.
  */
-NPY_NO_EXPORT npy_bool
+NPY_NO_EXPORT MPY_TARGET_MIC npy_bool
 MpyIter_IsFirstVisit(MpyIter *iter, int iop)
 {
-    //TODO
     npy_uint32 itflags = NIT_ITFLAGS(iter);
     int idim, ndim = NIT_NDIM(iter);
     int nop = NIT_NOP(iter);
@@ -803,6 +803,7 @@ MpyIter_IsFirstVisit(MpyIter *iter, int iop)
      * because of the requirement that EXTERNAL_LOOP be enabled.
      */
     if (itflags&NPY_ITFLAG_BUFFER) {
+        //TODO: check this when implement NIT buffer
         NpyIter_BufferData *bufferdata = NIT_BUFFERDATA(iter);
         /* The outer reduce loop */
         if (NBF_REDUCE_POS(bufferdata) != 0 &&
@@ -2965,6 +2966,20 @@ NPY_NO_EXPORT void mpyiter_update_offiter(MpyIter *iter)
     omp_target_memcpy(offiter, (void *) iter,
                         NIT_SIZEOF_ITERATOR(itflags, ndim, nop),
                         0, 0, NIT_DEVICE(iter), cpu_device);
+}
+
+NPY_NO_EXPORT void MpyIter_UpdateOffIter(MpyIter *iter)
+{
+    mpyiter_update_offiter(iter);
+}
+
+static void dummyOffloadBuild(void)
+{
+    #pragma omp target
+    {
+        void *f;
+        f = &MpyIter_IsFirstVisit;
+    }
 }
 
 #undef MPY_ITERATOR_IMPLEMENTATION_CODE

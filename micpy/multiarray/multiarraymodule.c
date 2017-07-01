@@ -62,8 +62,6 @@ NPY_NO_EXPORT int PyMicArray_GetNumDevices(void){
     return num_devices;
 }
 
-
-
 static PyObject *
 get_current_device(PyObject *ignored, PyObject *args){
     return (PyObject *) PyInt_FromLong(current_device);

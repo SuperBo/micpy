@@ -10,6 +10,7 @@
 #include <numpy/npy_common.h>
 //#include "npy_config.h"
 
+#define _MICARRAYMODULE
 #include "common.h"
 #include "alloc.h"
 #include <assert.h>

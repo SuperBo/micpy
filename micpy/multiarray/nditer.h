@@ -57,6 +57,9 @@ MpyIter_GotoIndex(MpyIter *iter, npy_intp flat_index);
 NPY_NO_EXPORT int
 MpyIter_GotoIterIndex(MpyIter *iter, npy_intp iterindex);
 
+NPY_NO_EXPORT MPY_TARGET_MIC npy_bool
+MpyIter_IsFirstVisit(MpyIter *iter, int iop);
+
 NPY_NO_EXPORT npy_intp
 MpyIter_GetIterIndex(MpyIter *iter);
 

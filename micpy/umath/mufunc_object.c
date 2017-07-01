@@ -45,6 +45,7 @@
 #include <multiarray/arrayobject.h>
 #include <multiarray/multiarray_api.h>
 #include <multiarray/mpy_common.h>
+#include <multiarray/common.h>
 
 #define _MICARRAY_UMATHMODULE
 #include "mufunc_object.h"
@@ -2472,10 +2473,12 @@ reduce_type_resolver(PyUFuncObject *ufunc, PyMicArrayObject *arr,
                         PyArray_Descr *odtype, PyArray_Descr **out_dtype)
 {
     int i, retcode;
-    PyArrayObject *op[3] = {(PyArrayObject *)arr, (PyArrayObject *)arr, NULL};
+    PyMicArrayObject *op[3] = {arr, arr, NULL};
     PyArray_Descr *dtypes[3] = {NULL, NULL, NULL};
-    const char *ufunc_name = ufunc->name ? ufunc->name : "(unknown)";
+    const char *ufunc_name = _get_ufunc_name(ufunc);
     PyObject *type_tup = NULL;
+    void *ptrs[3];
+    npy_longlong buf[3*4];
 
     *out_dtype = NULL;
 
@@ -2490,10 +2493,12 @@ reduce_type_resolver(PyUFuncObject *ufunc, PyMicArrayObject *arr,
         }
     }
 
+    ufunc_pre_typeresolver(ufunc, op, ptrs, buf, 4);
     /* Use the type resolution function to find our loop */
     retcode = ufunc->type_resolver(
                         ufunc, NPY_UNSAFE_CASTING,
-                        op, type_tup, dtypes);
+                        (PyArrayObject **)op, type_tup, dtypes);
+    ufunc_post_typeresolver(ufunc, op, ptrs);
     Py_DECREF(type_tup);
     if (retcode == -1) {
         return -1;
@@ -2554,89 +2559,105 @@ assign_reduce_identity_minusone(PyMicArrayObject *result, void *NPY_UNUSED(data)
 }
 
 static int
-reduce_loop(NpyIter *iter, char **dataptrs, npy_intp *strides,
-            npy_intp *countptr, NpyIter_IterNextFunc *iternext,
-            int needs_api, npy_intp skip_first_count, void *data, int device)
+reduce_loop(MpyIter *iter,
+            npy_intp skip_first_count, PyUFuncObject *ufunc)
 {
-    /* TODO */
     PyArray_Descr *dtypes[3], **iter_dtypes;
-    PyUFuncObject *ufunc = (PyUFuncObject *)data;
-    char *dataptrs_copy[3];
-    npy_intp strides_copy[3];
+    npy_intp *dataptrs, *strides, *countptr;
+    int needs_api, device;
 
     /* The normal selected inner loop */
-    PyUFuncGenericFunction innerloop = NULL;
-    void *innerloopdata = NULL;
+    void *loopdata;
+    MPY_TARGET_MIC PyUFuncGenericFunction innerloop = NULL;
+    MPY_TARGET_MIC void (*innerloopdata)(void) = NULL;
+    MPY_TARGET_MIC MpyIter_IterNextFunc *iternext = NULL;
+    MPY_TARGET_MIC MpyIter_IsFirstVisitFunc *isfirstvisit;
 
     NPY_BEGIN_THREADS_DEF;
 
     /* Get the inner loop */
-    iter_dtypes = NpyIter_GetDescrArray(iter);
+    iter_dtypes = MpyIter_GetDescrArray(iter);
     dtypes[0] = iter_dtypes[0];
     dtypes[1] = iter_dtypes[1];
     dtypes[2] = iter_dtypes[0];
     if (ufunc->legacy_inner_loop_selector(ufunc, dtypes,
-                            &innerloop, &innerloopdata, &needs_api) < 0) {
+                            &innerloop, &loopdata, &needs_api) < 0) {
         return -1;
     }
 
-    NPY_BEGIN_THREADS_NDITER(iter);
+    iternext = MpyIter_GetIterNext(iter, NULL);
+    if (iternext == NULL) {
+        return -1;
+    }
 
-    if (skip_first_count > 0) {
-        do {
-            npy_intp count = *countptr;
+    innerloopdata = loopdata;
+    isfirstvisit = &MpyIter_IsFirstVisit;
+    dataptrs = MpyIter_GetOffDataPtrArray(iter);
+    strides = MpyIter_GetOffInnerStrideArray(iter);
+    countptr = MpyIter_GetOffInnerLoopSizePtr(iter);
+    device = MpyIter_GetDevice(iter);
 
-            /* Skip any first-visit elements */
-            if (NpyIter_IsFirstVisit(iter, 0)) {
-                if (strides[0] == 0) {
-                    --count;
-                    --skip_first_count;
-                    dataptrs[1] += strides[1];
+    MPY_BEGIN_THREADS_NDITER(iter);
+
+    #pragma omp target device(device) map(to: dataptrs, strides, countptr,\
+                                              innerloop, innerloopdata, iternext,\
+                                              isfirstvisit, skip_first_count)
+    {
+        char *dataptrs_copy[3];
+        npy_intp strides_copy[3];
+        int finish = 0;
+
+        if (skip_first_count > 0) {
+            do {
+                npy_intp count = *countptr;
+
+                /* Skip any first-visit elements */
+                if (isfirstvisit(iter, 0)) {
+                    if (strides[0] == 0) {
+                        --count;
+                        --skip_first_count;
+                        dataptrs[1] += strides[1];
+                    }
+                    else {
+                        skip_first_count -= count;
+                        count = 0;
+                    }
                 }
-                else {
-                    skip_first_count -= count;
-                    count = 0;
-                }
-            }
 
-            /* Turn the two items into three for the inner loop */
-            dataptrs_copy[0] = dataptrs[0];
-            dataptrs_copy[1] = dataptrs[1];
-            dataptrs_copy[2] = dataptrs[0];
-            strides_copy[0] = strides[0];
-            strides_copy[1] = strides[1];
-            strides_copy[2] = strides[0];
-#pragma omp target device(device) \
-            map(to:innerloop, count, strides_copy[0:3], innerloopdata)
-            innerloop(NULL, &count,
-                        strides_copy, innerloopdata);
+                /* Turn the two items into three for the inner loop */
+                dataptrs_copy[0] = (char *) dataptrs[0];
+                dataptrs_copy[1] = (char *) dataptrs[1];
+                dataptrs_copy[2] = (char *) dataptrs[0];
+                strides_copy[0] = strides[0];
+                strides_copy[1] = strides[1];
+                strides_copy[2] = strides[0];
+                innerloop(dataptrs_copy, &count,
+                            strides_copy, innerloopdata);
 
-            /* Jump to the faster loop when skipping is done */
-            if (skip_first_count == 0) {
-                if (iternext(iter)) {
+                /* Jump to the faster loop when skipping is done */
+                if (skip_first_count == 0) {
+                    if (!iternext(iter)) {
+                        finish = 1;
+                    }
                     break;
                 }
-                else {
-                    goto finish_loop;
-                }
-            }
-        } while (iternext(iter));
+            } while (iternext(iter));
+        }
+        if (!finish) {
+            do {
+                /* Turn the two items into three for the inner loop */
+                dataptrs_copy[0] = (char *) dataptrs[0];
+                dataptrs_copy[1] = (char *) dataptrs[1];
+                dataptrs_copy[2] = (char *) dataptrs[0];
+                strides_copy[0] = strides[0];
+                strides_copy[1] = strides[1];
+                strides_copy[2] = strides[0];
+                innerloop(dataptrs_copy, countptr,
+                            strides_copy, innerloopdata);
+            } while (iternext(iter));
+        }
     }
-    do {
-        /* Turn the two items into three for the inner loop */
-        dataptrs_copy[0] = dataptrs[0];
-        dataptrs_copy[1] = dataptrs[1];
-        dataptrs_copy[2] = dataptrs[0];
-        strides_copy[0] = strides[0];
-        strides_copy[1] = strides[1];
-        strides_copy[2] = strides[0];
-#pragma omp target device(device) \
-        map(to: innerloop, countptr[0:1], strides_copy[0:3], innerloopdata)
-        innerloop(NULL, countptr,
-                    strides_copy, innerloopdata);
-    } while (iternext(iter));
 
-finish_loop:
     NPY_END_THREADS;
 
     return (needs_api && PyErr_Occurred()) ? -1 : 0;
@@ -2663,13 +2684,103 @@ static PyMicArrayObject *
 PyMUFunc_Reduce(PyUFuncObject *ufunc, PyMicArrayObject *arr, PyMicArrayObject *out,
         int naxes, int *axes, PyArray_Descr *odtype, int keepdims)
 {
-    /* TODO: implement this */
-   return NULL;
+    int iaxes, reorderable, ndim;
+    npy_bool axis_flags[NPY_MAXDIMS];
+    PyArray_Descr *dtype;
+    PyMicArrayObject *result;
+    PyMicArray_AssignReduceIdentityFunc *assign_identity = NULL;
+    const char *ufunc_name = _get_ufunc_name(ufunc);
+    /* These parameters come from a TLS global */
+    int buffersize = 0, errormask = 0;
+
+    NPY_UF_DBG_PRINT1("\nEvaluating ufunc %s.reduce\n", ufunc_name);
+
+    ndim = PyMicArray_NDIM(arr);
+
+    /* Create an array of flags for reduction */
+    memset(axis_flags, 0, ndim);
+    for (iaxes = 0; iaxes < naxes; ++iaxes) {
+        int axis = axes[iaxes];
+        if (axis_flags[axis]) {
+            PyErr_SetString(PyExc_ValueError,
+                    "duplicate value in 'axis'");
+            return NULL;
+        }
+        axis_flags[axis] = 1;
+    }
+
+    switch (ufunc->identity) {
+        case PyUFunc_Zero:
+            assign_identity = &assign_reduce_identity_zero;
+            reorderable = 1;
+            /*
+             * The identity for a dynamic dtype like
+             * object arrays can't be used in general
+             */
+            if (PyMicArray_ISOBJECT(arr) && PyMicArray_SIZE(arr) != 0) {
+                assign_identity = NULL;
+            }
+            break;
+        case PyUFunc_One:
+            assign_identity = &assign_reduce_identity_one;
+            reorderable = 1;
+            /*
+             * The identity for a dynamic dtype like
+             * object arrays can't be used in general
+             */
+            if (PyMicArray_ISOBJECT(arr) && PyMicArray_SIZE(arr) != 0) {
+                assign_identity = NULL;
+            }
+            break;
+        case PyUFunc_MinusOne:
+            assign_identity = &assign_reduce_identity_minusone;
+            reorderable = 1;
+            /*
+             * The identity for a dynamic dtype like
+             * object arrays can't be used in general
+             */
+            if (PyMicArray_ISOBJECT(arr) && PyMicArray_SIZE(arr) != 0) {
+                assign_identity = NULL;
+            }
+            break;
+
+        case PyUFunc_None:
+            reorderable = 0;
+            break;
+        case PyUFunc_ReorderableNone:
+            reorderable = 1;
+            break;
+        default:
+            PyErr_Format(PyExc_ValueError,
+                    "ufunc %s has an invalid identity for reduction",
+                    ufunc_name);
+            return NULL;
+    }
+
+    if (_get_bufsize_errmask(NULL, "reduce", &buffersize, &errormask) < 0) {
+        return NULL;
+    }
+
+    /* Get the reduction dtype */
+    if (reduce_type_resolver(ufunc, arr, odtype, &dtype) < 0) {
+        return NULL;
+    }
+
+    result = PyMUFunc_ReduceWrapper(arr, out, NULL, dtype, dtype,
+                                   NPY_UNSAFE_CASTING,
+                                   axis_flags, reorderable,
+                                   keepdims, 0,
+                                   assign_identity,
+                                   reduce_loop,
+                                   ufunc, buffersize, ufunc_name);
+
+    Py_DECREF(dtype);
+    return result;
 }
 
 
-static PyObject *
-PyUFunc_Accumulate(PyUFuncObject *ufunc, PyArrayObject *arr, PyArrayObject *out,
+static PyMicArrayObject *
+PyMUFunc_Accumulate(PyUFuncObject *ufunc, PyMicArrayObject *arr, PyMicArrayObject *out,
                    int axis, int otype)
 {
    /* TODO:implement this */
@@ -2695,9 +2806,9 @@ PyUFunc_Accumulate(PyUFuncObject *ufunc, PyArrayObject *arr, PyArrayObject *out,
  *
  * output shape is based on the size of indices
  */
-static PyObject *
-PyUFunc_Reduceat(PyUFuncObject *ufunc, PyArrayObject *arr, PyArrayObject *ind,
-                 PyArrayObject *out, int axis, int otype)
+static PyMicArrayObject *
+PyMUFunc_Reduceat(PyUFuncObject *ufunc, PyMicArrayObject *arr, PyArrayObject *ind,
+                 PyMicArrayObject *out, int axis, int otype)
 {
     //TODO: Implement this
     return NULL;
@@ -2713,8 +2824,302 @@ static PyObject *
 PyMUFunc_GenericReduction(PyUFuncObject *ufunc, PyObject *args,
                          PyObject *kwds, int operation)
 {
-    /* TODO */
-    return NULL;
+    int i, naxes=0, ndim;
+    int axes[NPY_MAXDIMS];
+    PyObject *axes_in = NULL;
+    PyMicArrayObject *mp, *ret = NULL;
+    PyObject *op, *res = NULL;
+    PyObject *obj_ind, *context;
+    PyArrayObject *indices = NULL;
+    PyArray_Descr *otype = NULL;
+    PyObject *out_obj = NULL;
+    PyMicArrayObject *out = NULL;
+    int keepdims = 0;
+    static char *reduce_kwlist[] = {
+            "array", "axis", "dtype", "out", "keepdims", NULL};
+    static char *accumulate_kwlist[] = {
+            "array", "axis", "dtype", "out", "keepdims", NULL};
+    static char *reduceat_kwlist[] = {
+            "array", "indices", "axis", "dtype", "out", NULL};
+
+    static char *_reduce_type[] = {"reduce", "accumulate", "reduceat", NULL};
+
+    if (ufunc == NULL) {
+        PyErr_SetString(PyExc_ValueError, "function not supported");
+        return NULL;
+    }
+    if (ufunc->core_enabled) {
+        PyErr_Format(PyExc_RuntimeError,
+                     "Reduction not defined on ufunc with signature");
+        return NULL;
+    }
+    if (ufunc->nin != 2) {
+        PyErr_Format(PyExc_ValueError,
+                     "%s only supported for binary functions",
+                     _reduce_type[operation]);
+        return NULL;
+    }
+    if (ufunc->nout != 1) {
+        PyErr_Format(PyExc_ValueError,
+                     "%s only supported for functions "
+                     "returning a single value",
+                     _reduce_type[operation]);
+        return NULL;
+    }
+    /* if there is a tuple of 1 for `out` in kwds, unpack it */
+    if (kwds != NULL) {
+        PyObject *out_obj = PyDict_GetItem(kwds, mpy_um_str_out);
+        if (out_obj != NULL && PyTuple_CheckExact(out_obj)) {
+            if (PyTuple_GET_SIZE(out_obj) != 1) {
+                PyErr_SetString(PyExc_ValueError,
+                                "The 'out' tuple must have exactly one entry");
+                return NULL;
+            }
+            out_obj = PyTuple_GET_ITEM(out_obj, 0);
+            PyDict_SetItem(kwds, mpy_um_str_out, out_obj);
+        }
+    }
+
+    if (operation == UFUNC_REDUCEAT) {
+        PyArray_Descr *indtype;
+        indtype = PyArray_DescrFromType(NPY_INTP);
+        if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO|OO&O&:reduceat", reduceat_kwlist,
+                                        &op,
+                                        &obj_ind,
+                                        &axes_in,
+                                        PyArray_DescrConverter2, &otype,
+                                        PyMicArray_OutputConverter, &out)) {
+            Py_XDECREF(otype);
+            return NULL;
+        }
+        indices = (PyArrayObject *)PyArray_FromAny(obj_ind, indtype,
+                                           1, 1, NPY_ARRAY_CARRAY, NULL);
+        if (indices == NULL) {
+            Py_XDECREF(otype);
+            return NULL;
+        }
+    }
+    else if (operation == UFUNC_ACCUMULATE) {
+        PyObject *bad_keepdimarg = NULL;
+        if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO&O&O:accumulate",
+                                        accumulate_kwlist,
+                                        &op,
+                                        &axes_in,
+                                        PyArray_DescrConverter2, &otype,
+                                        PyArray_OutputConverter, &out,
+                                        &bad_keepdimarg)) {
+            Py_XDECREF(otype);
+            return NULL;
+        }
+        /* Until removed outright by https://github.com/numpy/numpy/pull/8187 */
+        if (bad_keepdimarg != NULL) {
+            if (DEPRECATE_FUTUREWARNING(
+                    "keepdims argument has no effect on accumulate, and will be "
+                    "removed in future") < 0) {
+                Py_XDECREF(otype);
+                return NULL;
+            }
+        }
+    }
+    else {
+        if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO&O&i:reduce",
+                                        reduce_kwlist,
+                                        &op,
+                                        &axes_in,
+                                        PyArray_DescrConverter2, &otype,
+                                        PyMicArray_OutputConverter, &out,
+                                        &keepdims)) {
+            Py_XDECREF(otype);
+            return NULL;
+        }
+    }
+    /* Ensure input is an array */
+    if (!PyMicArray_Check(op)) {
+        PyErr_SetString(PyExc_TypeError, "array must be an MicArray");
+        Py_XDECREF(otype);
+        return NULL;
+    }
+    Py_INCREF(op);
+    mp = (PyMicArrayObject *)op;
+
+    ndim = PyMicArray_NDIM(mp);
+
+    /* Check to see that type (and otype) is not FLEXIBLE */
+    if (PyMicArray_ISFLEXIBLE(mp) ||
+        (otype && PyTypeNum_ISFLEXIBLE(otype->type_num))) {
+        PyErr_Format(PyExc_TypeError,
+                     "cannot perform %s with flexible type",
+                     _reduce_type[operation]);
+        Py_XDECREF(otype);
+        Py_DECREF(mp);
+        return NULL;
+    }
+
+    /* Convert the 'axis' parameter into a list of axes */
+    if (axes_in == NULL) {
+        naxes = 1;
+        axes[0] = 0;
+    }
+    /* Convert 'None' into all the axes */
+    else if (axes_in == Py_None) {
+        naxes = ndim;
+        for (i = 0; i < naxes; ++i) {
+            axes[i] = i;
+        }
+    }
+    else if (PyTuple_Check(axes_in)) {
+        naxes = PyTuple_Size(axes_in);
+        if (naxes < 0 || naxes > NPY_MAXDIMS) {
+            PyErr_SetString(PyExc_ValueError,
+                    "too many values for 'axis'");
+            Py_XDECREF(otype);
+            Py_DECREF(mp);
+            return NULL;
+        }
+        for (i = 0; i < naxes; ++i) {
+            PyObject *tmp = PyTuple_GET_ITEM(axes_in, i);
+            int axis = PyArray_PyIntAsInt(tmp);
+            if (axis == -1 && PyErr_Occurred()) {
+                Py_XDECREF(otype);
+                Py_DECREF(mp);
+                return NULL;
+            }
+            if (check_and_adjust_axis(&axis, ndim) < 0) {
+                Py_XDECREF(otype);
+                Py_DECREF(mp);
+                return NULL;
+            }
+            axes[i] = (int)axis;
+        }
+    }
+    /* Try to interpret axis as an integer */
+    else {
+        int axis = PyArray_PyIntAsInt(axes_in);
+        /* TODO: PyNumber_Index would be good to use here */
+        if (axis == -1 && PyErr_Occurred()) {
+            Py_XDECREF(otype);
+            Py_DECREF(mp);
+            return NULL;
+        }
+        /* Special case letting axis={0 or -1} slip through for scalars */
+        if (ndim == 0 && (axis == 0 || axis == -1)) {
+            axis = 0;
+        }
+        else if (check_and_adjust_axis(&axis, ndim) < 0) {
+            return NULL;
+        }
+        axes[0] = (int)axis;
+        naxes = 1;
+    }
+
+    /* Check to see if input is zero-dimensional. */
+    if (ndim == 0) {
+        /*
+         * A reduction with no axes is still valid but trivial.
+         * As a special case for backwards compatibility in 'sum',
+         * 'prod', et al, also allow a reduction where axis=0, even
+         * though this is technically incorrect.
+         */
+        naxes = 0;
+
+        if (!(operation == UFUNC_REDUCE &&
+                    (naxes == 0 || (naxes == 1 && axes[0] == 0)))) {
+            PyErr_Format(PyExc_TypeError, "cannot %s on a scalar",
+                         _reduce_type[operation]);
+            Py_XDECREF(otype);
+            Py_DECREF(mp);
+            return NULL;
+        }
+    }
+
+     /*
+      * If out is specified it determines otype
+      * unless otype already specified.
+      */
+    if (otype == NULL && out != NULL) {
+        otype = PyMicArray_DESCR(out);
+        Py_INCREF(otype);
+    }
+    if (otype == NULL) {
+        /*
+         * For integer types --- make sure at least a long
+         * is used for add and multiply reduction to avoid overflow
+         */
+        int typenum = PyMicArray_TYPE(mp);
+        if ((PyTypeNum_ISBOOL(typenum) || PyTypeNum_ISINTEGER(typenum))
+            && ((strcmp(ufunc->name,"add") == 0)
+                || (strcmp(ufunc->name,"multiply") == 0))) {
+            if (PyTypeNum_ISBOOL(typenum)) {
+                typenum = NPY_LONG;
+            }
+            else if ((size_t)PyMicArray_DESCR(mp)->elsize < sizeof(long)) {
+                if (PyTypeNum_ISUNSIGNED(typenum)) {
+                    typenum = NPY_ULONG;
+                }
+                else {
+                    typenum = NPY_LONG;
+                }
+            }
+        }
+        otype = PyArray_DescrFromType(typenum);
+    }
+
+
+    switch(operation) {
+    case UFUNC_REDUCE:
+        ret = PyMUFunc_Reduce(ufunc, mp, out, naxes, axes,
+                                          otype, keepdims);
+        break;
+    case UFUNC_ACCUMULATE:
+        if (naxes != 1) {
+            PyErr_SetString(PyExc_ValueError,
+                        "accumulate does not allow multiple axes");
+            Py_XDECREF(otype);
+            Py_DECREF(mp);
+            return NULL;
+        }
+        ret = PyMUFunc_Accumulate(ufunc, mp, out, axes[0],
+                                                  otype->type_num);
+        break;
+    case UFUNC_REDUCEAT:
+        if (naxes != 1) {
+            PyErr_SetString(PyExc_ValueError,
+                        "reduceat does not allow multiple axes");
+            Py_XDECREF(otype);
+            Py_DECREF(mp);
+            return NULL;
+        }
+        ret = PyMUFunc_Reduceat(ufunc, mp, indices, out,
+                                            axes[0], otype->type_num);
+        Py_DECREF(indices);
+        break;
+    }
+    Py_DECREF(mp);
+    Py_DECREF(otype);
+
+    if (ret == NULL) {
+        return NULL;
+    }
+
+    /* If an output parameter was provided, don't wrap it */
+    if (out != NULL) {
+        return (PyObject *)ret;
+    }
+
+    if (Py_TYPE(op) != Py_TYPE(ret)) {
+        res = PyObject_CallMethod(op, "__array_wrap__", "O", ret);
+        if (res == NULL) {
+            PyErr_Clear();
+        }
+        else if (res == Py_None) {
+            Py_DECREF(res);
+        }
+        else {
+            Py_DECREF(ret);
+            return res;
+        }
+    }
+    return PyMicArray_Return(ret);
 }
 
 /*
@@ -3405,10 +3810,10 @@ mufunc_at(PyUFuncObject *ufunc, PyObject *args)
 
 //static: mic undefined symbol error if we set static here
 NPY_NO_EXPORT struct PyMethodDef mufunc_methods[] = {
-    /*{"reduce",
+    {"reduce",
         (PyCFunction)mufunc_reduce,
         METH_VARARGS | METH_KEYWORDS, NULL },
-    {"accumulate",
+    /*{"accumulate",
         (PyCFunction)mufunc_accumulate,
         METH_VARARGS | METH_KEYWORDS, NULL },
     {"reduceat",

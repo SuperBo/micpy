@@ -98,14 +98,9 @@ typedef int (PyMicArray_AssignReduceIdentityFunc)(PyMicArrayObject *result,
  * to check if an error occurred during processing, and return -1 for
  * error, 0 for success.
  */
-typedef int (PyMicArray_ReduceLoopFunc)(NpyIter *iter,
-                                            char **dataptr,
-                                            npy_intp *strideptr,
-                                            npy_intp *countptr,
-                                            NpyIter_IterNextFunc *iternext,
-                                            int needs_api,
+typedef int (PyMicArray_ReduceLoopFunc)(MpyIter *iter,
                                             npy_intp skip_first_count,
-                                            void *data, int device);
+                                            PyUFuncObject *ufunc);
 
 /*
  * This function executes all the standard NumPy reduction function
@@ -149,6 +144,6 @@ PyMUFunc_ReduceWrapper(PyMicArrayObject *operand, PyMicArrayObject *out,
                       int subok,
                       PyMicArray_AssignReduceIdentityFunc *assign_identity,
                       PyMicArray_ReduceLoopFunc *loop,
-                      void *data, npy_intp buffersize, const char *funcname);
+                      PyUFuncObject *ufunc, npy_intp buffersize, const char *funcname);
 
 #endif

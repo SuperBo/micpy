@@ -425,7 +425,7 @@ mpyiter_get_multi_index_itflags@tag_itflags@(
  * the GIL.
  */
 NPY_NO_EXPORT MpyIter_GetMultiIndexFunc *
-MpyIter_GetGetMultiIndex(MpyIter *iter, char **errmsg)
+MpyIter_GetMultiIndex(MpyIter *iter, char **errmsg)
 {
     npy_uint32 itflags = NIT_ITFLAGS(iter);
     int ndim = NIT_NDIM(iter);

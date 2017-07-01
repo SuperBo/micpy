@@ -47,7 +47,8 @@ typedef struct MpyIter_InternalOnly MpyIter;
 typedef int (MpyIter_IterNextFunc)(MpyIter *iter);
 typedef void (MpyIter_GetMultiIndexFunc)(MpyIter *iter,
                                       npy_intp *outcoords);
-/* End array iter */
+typedef npy_bool (MpyIter_IsFirstVisitFunc)(MpyIter *iter, int iop);
+/* End array iter part */
 
 #define MPY_SIZEOF_PYMICARRAYOBJECT (sizeof(PyMicArrayObject))
 

@@ -29,11 +29,6 @@ target_memset(void *ptr, int value, size_t num, int device_num)
 #define target_memcpy(dst, src, len, dst_dev, src_dev) \
                 omp_target_memcpy(dst, src, len, 0, 0, dst_dev, src_dev)
 
-/* Array iter part */
-typedef struct MpyIter_InternalOnly MpyIter;
-typedef int (MpyIter_IterNextFunc)(MpyIter *iter);
-typedef void (MpyIter_GetMultiIndexFunc)(MpyIter *iter,
-                                      npy_intp *outcoords);
 
 #ifdef NPY_ALLOW_THREADS
 #define MPY_BEGIN_THREADS_NDITER(iter) \

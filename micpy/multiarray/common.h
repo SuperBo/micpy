@@ -10,9 +10,6 @@
 #define NMAXDEVICES 2
 #endif
 
-NPY_NO_EXPORT int PyMicArray_GetCurrentDevice(void);
-NPY_NO_EXPORT int PyMicArray_GetNumDevices(void);
-
 #define NDEVICES (PyMicArray_GetNumDevices())
 #define N_DEVICES (PyMicArray_GetNumDevices())
 
@@ -31,6 +28,11 @@ NPY_NO_EXPORT int PyMicArray_GetNumDevices(void);
 #endif
 
 #define error_converting(x)  (((x) == -1) && PyErr_Occurred())
+
+#ifdef _MICARRAYMODULE
+
+NPY_NO_EXPORT int PyMicArray_GetCurrentDevice(void);
+NPY_NO_EXPORT int PyMicArray_GetNumDevices(void);
 
 NPY_NO_EXPORT int
 _zerofill(PyMicArrayObject *ret);
@@ -64,6 +66,8 @@ get_common_device2(PyObject *op1, PyObject *op2);
 
 NPY_NO_EXPORT int
 get_common_device(PyObject **ops, int nop);
+
+#endif
 
 /*
  * Returns -1 and sets an exception if *axis is an invalid axis for

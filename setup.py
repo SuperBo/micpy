@@ -90,12 +90,12 @@ def add_umath_ext(config):
     umath_dir = join('micpy', 'umath')
 
     umath_sources = ['umathmodule.c', 'mufunc_object.c',
-                     'output_creators.c',
+                     'output_creators.c', 'reduction.c',
                      'funcs.inc.src', 'loops.h.src', 'loops.c.src',
                      'simd.inc.src']
     umath_sources = [join(umath_dir, f) for f in umath_sources]
     umath_sources.append(join(mpymath_dir, 'non_standards.h.src'))
-    umath_sources.append(join(numpy_private_dir, 'mem_overlap.c'))
+    umath_sources.append(join(multiarray_dir, 'mpymem_overlap.c'))
     umath_sources.append(generate_umath_c)
 
     config.add_extension('umath',

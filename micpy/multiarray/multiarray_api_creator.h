@@ -63,8 +63,12 @@
         (void *) &MpyIter_GetOffDataPtrArray,\
         (void *) &MpyIter_GetOffInnerLoopSizePtr,\
         (void *) &MpyIter_GetOffInnerStrideArray,\
+        (void *) &MpyIter_IsFirstVisit,\
         (void *) &PyMicArray_SetNumericOps,\
-        &PyMicArray_FromScalar,\
+        (void *) &PyMicArray_FromScalar,\
+        (void *) &PyMicArray_SetBaseObject,\
+        (void *) &PyMicArray_SetUpdateIfCopyBase,\
+        (void *) &PyMicArray_OutputConverter,\
         NULL\
     }
 
