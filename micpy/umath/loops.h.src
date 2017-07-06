@@ -192,8 +192,12 @@ NPY_NO_EXPORT void
 /**begin repeat
  *  #TYPE = FLOAT, DOUBLE#
  */
+/**begin repeat1
+ * #func = sqrt, log, exp, log2, exp2#
+ */
 NPY_NO_EXPORT void
-@TYPE@_sqrt(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
+@TYPE@_@func@(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
+/**end repeat1**/
 /**end repeat**/
 
 /**begin repeat

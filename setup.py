@@ -35,6 +35,8 @@ private_npy_defines = [('HAVE_ENDIAN_H', 1),
             ('HAVE_COMPLEX_H', 1),
             ('HAVE_LDOUBLE_INTEL_EXTENDED_16_BYTES_LE', 1)]
 
+mpy_defines = [('MPY_HAVE_IMCI_INTRINSICS', 1)]
+
 
 def add_multiarray_ext(config):
     multiarray_sources = ['alloc.c', 'array_assign.c', 'arrayobject.c',
@@ -100,9 +102,9 @@ def add_umath_ext(config):
 
     config.add_extension('umath',
                         sources=umath_sources,
-                        include_dirs=[umath_dir, mpymath_dir],
+                        include_dirs=[umath_dir, mpymath_dir, multiarray_dir],
                         libraries=['mpymath'],
-                        define_macros=private_npy_defines)
+                        define_macros=private_npy_defines+mpy_defines)
 
 
 def configuration(parent_package='', top_path=None):

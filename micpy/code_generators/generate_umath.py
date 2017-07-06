@@ -222,6 +222,7 @@ cmplxO = cmplx + O
 cmplxP = cmplx + P
 inexact = flts + cmplx
 inexactvec = 'fd'
+inexactnoevec = 'g' + cmplx
 noint = inexact+O
 nointP = inexact+P
 allP = bints+times+flts+cmplxP
@@ -631,13 +632,17 @@ defdict = {
     Ufunc(1, 1, None,
           '',
           None,
-          TD(inexact, f='exp', astype={'e':'f'}),
+          TD('e', f='exp', astype={'e':'f'}),
+          TD(inexactvec),
+          TD(inexactnoevec, f='exp'),
           ),
 'exp2':
     Ufunc(1, 1, None,
           '',
           None,
-          TD(inexact, f='exp2', astype={'e':'f'}),
+          TD('e', f='exp2', astype={'e':'f'}),
+          TD(inexactvec),
+          TD(inexactnoevec, f='exp2'),
           ),
 'expm1':
     Ufunc(1, 1, None,
@@ -649,13 +654,17 @@ defdict = {
     Ufunc(1, 1, None,
           '',
           None,
-          TD(inexact, f='log', astype={'e':'f'}),
+          TD('e', f='log', astype={'e':'f'}),
+          TD(inexactvec),
+          TD(inexactnoevec, f='log'),
           ),
 'log2':
     Ufunc(1, 1, None,
           '',
           None,
-          TD(inexact, f='log2', astype={'e':'f'}),
+          TD('e', f='log2', astype={'e':'f'}),
+          TD(inexactvec),
+          TD(inexactnoevec, f='log2'),
           ),
 'log10':
     Ufunc(1, 1, None,
@@ -675,7 +684,7 @@ defdict = {
           None,
           TD('e', f='sqrt', astype={'e':'f'}),
           TD(inexactvec),
-          TD(inexact, f='sqrt', astype={'e':'f'}),
+          TD(inexactnoevec, f='sqrt'),
           ),
 'cbrt':
     Ufunc(1, 1, None,

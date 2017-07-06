@@ -1546,22 +1546,28 @@ TIMEDELTA_mm_d_divide(char **args, npy_intp *dimensions, npy_intp *steps, void *
  *  #type = npy_float, npy_double#
  *  #TYPE = FLOAT, DOUBLE#
  *  #scalarf = sqrtf, sqrt#
+ *  #c = f,#
+ */
+
+/**begin repeat1
+ * Functions
+ * #func = sqrt, exp, log, exp2, log2#
  */
 
 NPY_NO_EXPORT void
-@TYPE@_sqrt(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func))
+@TYPE@_@func@(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func))
 {
 #ifdef __MIC__
-    //if (!run_unary_simd_sqrt_@TYPE@(args, dimensions, steps)) {
-    // TODO: should we implement simd here
-    if (1) {
+    if (!run_unary_simd_@func@_@TYPE@(args, dimensions, steps)) {
         UNARY_LOOP {
             const @type@ in1 = *(@type@ *)ip1;
-            *(@type@ *)op1 = @scalarf@(in1);
+            *(@type@ *)op1 = @func@@c@(in1);
         }
     }
 #endif
 }
+
+/**end repeat1**/
 
 /**end repeat**/
 
