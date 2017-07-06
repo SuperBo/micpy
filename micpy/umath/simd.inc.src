@@ -165,7 +165,7 @@ run_@name@_simd_@func@_@TYPE@(char **args, npy_intp *dimensions, npy_intp *steps
 
 /**begin repeat1
  * Arithmetic
- * # kind = add, subtract, multiply, divide#
+ * # kind = add, subtract, multiply, divide, maximum, minimum#
  */
 
 #if @vector@ && defined MPY_HAVE_IMCI_INTRINSICS
@@ -397,6 +397,14 @@ static NPY_INLINE npy_double imci_horizontal_@VOP@___m512d(__m512d v)
 
 /**end repeat**/
 
+#define my_gmax(a, b) (((a) >= (b) || isnan(b)) ? (a) : (b))
+#define my_gmin(a, b) (((a) < (b) || isnan(b)) ? (a) : (b))
+#define my_add(a, b) ((a) + (b))
+#define my_sub(a, b) ((a) - (b))
+#define my_mul(a, b) ((a) * (b))
+#define my_div(a, b) ((a) / (b))
+
+
 /**begin repeat
  *  #type = npy_float, npy_double#
  *  #TYPE = FLOAT, DOUBLE#
@@ -416,18 +424,19 @@ static NPY_INLINE npy_double imci_horizontal_@VOP@___m512d(__m512d v)
 
 
 /**begin repeat1
-* Arithmetic
-* # kind = add, subtract, multiply, divide#
-* # OP = +, -, *, /#
-* # VOP = add, sub, mul, div#
-*/
+ * Arithmetic
+ * # kind = add, subtract, multiply, divide, maximum, minimum#
+ * # OP = +, -, *, /, >=, <#
+ * # VOP = add, sub, mul, div, gmax, gmin#
+ * # scalarop = my_add, my_sub, my_mul, my_div, my_gmax, my_gmin#
+ */
 
 static void
 imci_binary_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2, npy_intp n)
 {
 #ifdef __MIC__
     LOOP_BLOCK_ALIGN_VAR(op, @type@, 64)
-        op[i] = ip1[i] @OP@ ip2[i];
+        op[i] = @scalarop@(ip1[i], ip2[i]);
     /* lots of specializations, to squeeze out max performance */
     if (mpy_is_aligned(&ip1[i], 64) && mpy_is_aligned(&ip2[i], 64)) {
         if (ip1 == ip2) {
@@ -489,7 +498,7 @@ imci_binary_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2, npy_intp n)
         }
     }
     LOOP_BLOCKED_END {
-        op[i] = ip1[i] @OP@ ip2[i];
+        op[i] = @scalarop@(ip1[i], ip2[i]);
     }
 #endif
 }
@@ -501,7 +510,7 @@ imci_binary_scalar1_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2, npy_i
 #ifdef __MIC__
     const @vtype@ a = @vpre@_set1_@vsuf@(ip1[0]);
     LOOP_BLOCK_ALIGN_VAR(op, @type@, 64)
-        op[i] = ip1[0] @OP@ ip2[i];
+        op[i] = @scalarop@(ip1[0], ip2[i]);
     if (mpy_is_aligned(&ip2[i], 64)) {
         LOOP_BLOCKED(@type@, 64) {
             @vtype@ b = @vpre@_load_@vsuf@(&ip2[i]);
@@ -519,7 +528,7 @@ imci_binary_scalar1_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2, npy_i
         }
     }
     LOOP_BLOCKED_END {
-        op[i] = ip1[0] @OP@ ip2[i];
+        op[i] = @scalarop@(ip1[0], ip2[i]);
     }
 #endif
 }
@@ -531,7 +540,7 @@ imci_binary_scalar2_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2, npy_i
 #ifdef __MIC__
     const @vtype@ b = @vpre@_set1_@vsuf@(ip2[0]);
     LOOP_BLOCK_ALIGN_VAR(op, @type@, 64)
-        op[i] = ip1[i] @OP@ ip2[0];
+        op[i] = @scalarop@(ip1[i], ip2[0]);
     if (mpy_is_aligned(&ip1[i], 64)) {
         LOOP_BLOCKED(@type@, 64) {
             @vtype@ a = @vpre@_load_@vsuf@(&ip1[i]);
@@ -549,7 +558,7 @@ imci_binary_scalar2_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2, npy_i
         }
     }
     LOOP_BLOCKED_END {
-        op[i] = ip1[i] @OP@ ip2[0];
+        op[i] = @scalarop@(ip1[i], ip2[0]);
     }
 #endif
 }
@@ -562,7 +571,7 @@ imci_binary_scalar2_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2, npy_i
  */
 
 static void
-imci_@VOP@_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
+imci_@func@_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
 {
 #ifdef __MIC__
      /* align output to 64 bytes */
@@ -723,6 +732,7 @@ imci_negative_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
  * #kind = maximum, minimum#
  * #VOP = gmax, gmin#
  * #OP = >=, <=#
+ * #scalarop = my_gmax, my_gmin#
  **/
 /* arguments swapped as unary reduce has the swapped compared to unary */
 static void
@@ -731,7 +741,7 @@ imci_@kind@_@TYPE@(@type@ * ip, @type@ * op, const npy_intp n)
 #ifdef __MIC__
     const size_t stride = 64 / sizeof(@type@);
     LOOP_BLOCK_ALIGN_VAR(ip, @type@, 64) {
-        *op = (*op @OP@ ip[i] || isnan(*op)) ? *op : ip[i];
+        *op = @scalarop@(*op, ip[i]);
     }
     assert(n < (stride) || mpy_is_aligned(&ip[i], 64));
     if (i + 3 * stride <= n) {
@@ -755,17 +765,24 @@ imci_@kind@_@TYPE@(@type@ * ip, @type@ * op, const npy_intp n)
         }
         else {
             @type@ tmp = @vpre@_reduce_@VOP@_@vsuf@(c1);
-            *op  = (*op @OP@ tmp || isnan(*op)) ? *op : tmp;
+            *op  = @scalarop@(*op, tmp);
         }
     }
     LOOP_BLOCKED_END {
-        *op  = (*op @OP@ ip[i] || isnan(*op)) ? *op : ip[i];
+        *op  = @scalarop@(*op, ip[i]);
     }
 #endif
 }
 /**end repeat1**/
 
 /**end repeat**/
+
+#undef my_gmax
+#undef my_gmin
+#undef my_add
+#undef my_sub
+#undef my_mul
+#undef my_div
 
 /*
  *****************************************************************************
