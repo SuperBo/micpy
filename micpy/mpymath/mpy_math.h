@@ -106,6 +106,9 @@ inline double mpy_expm1(double x){
 inline double mpy_log1p(double x){
     return log1p(x);
 }
+inline double mpy_logb(double x){
+    return logb(x);
+}
 inline double mpy_hypot(double x, double y){
     return hypot(x, y);
 }
@@ -229,6 +232,9 @@ inline float mpy_atanhf(float x){
 inline float mpy_log1pf(float x){
     return log1pf(x);
 }
+inline float mpy_logbf(float x){
+    return logbf(x);
+}
 inline float mpy_exp2f(float x){
     return exp2f(x);
 }
@@ -343,6 +349,9 @@ inline npy_longdouble mpy_atanhl(npy_longdouble x){
 }
 inline npy_longdouble mpy_log1pl(npy_longdouble x){
     return log1pl(x);
+}
+inline npy_longdouble mpy_logbl(npy_longdouble x){
+    return logbl(x);
 }
 inline npy_longdouble mpy_exp2l(npy_longdouble x){
     return exp2l(x);

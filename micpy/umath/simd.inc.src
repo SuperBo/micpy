@@ -131,10 +131,15 @@ abs_intp(npy_intp x)
  */
 
 /**begin repeat1
- * #func = sqrt, exp, log, exp2, log2, absolute, negative, minimum, maximum#
- * #check = IS_BLOCKABLE_UNARY*7, IS_BLOCKABLE_REDUCE*2 #
- * #name = unary*7, unary_reduce*2#
- * #minmax = 0*7, 1*2#
+ * #func = exp, exp2, expm1, log, log10, log2, logb, log1p,
+ *         sqrt, invsqrt, cbrt, ceil, floor, rint, trunc,
+ *         cos, cosd, cosh, acos, acosh,
+ *         sin, sind, sinh, asin, asinh,
+ *         tan, tand, tanh, atan, atanh, fabs,
+ *         absolute, negative, minimum, maximum#
+ * #check = IS_BLOCKABLE_UNARY*33, IS_BLOCKABLE_REDUCE*2 #
+ * #name = unary*33, unary_reduce*2#
+ * #minmax = 0*33, 1*2#
  */
 
 #if @vector@ && defined MPY_HAVE_IMCI_INTRINSICS
@@ -566,17 +571,26 @@ imci_binary_scalar2_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2, npy_i
 /**end repeat1**/
 
 /**begin repeat1
- * # func = sqrt,exp,log,exp2#
- * # VOP =  sqrt,exp,log,exp2#
+ *
+ * #kind = exp, exp2, expm1, log, log10, logb, log1p,
+ *         sqrt, invsqrt, cbrt, ceil, floor, rint, trunc,
+ *         cos, cosd, cosh, acos, acosh,
+ *         sin, sind, sinh, asin, asinh,
+ *         tan, tand, tanh, atan, atanh, fabs#
+ * #VOP =  exp, exp2, expm1, log, log10, logb, log1p,
+ *         sqrt, invsqrt, cbrt, ceil, floor, rint, trunc,
+ *         cos, cosd, cosh, acos, acosh,
+ *         sin, sind, sinh, asin, asinh,
+ *         tan, tand, tanh, atan, atanh, abs#
  */
 
 static void
-imci_@func@_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
+imci_@kind@_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
 {
 #ifdef __MIC__
      /* align output to 64 bytes */
     LOOP_BLOCK_ALIGN_VAR(op, @type@, 64) {
-        op[i] = @func@@c@(ip[i]);
+        op[i] = @kind@@c@(ip[i]);
     }
     assert(n < (64 / sizeof(@type@)) || mpy_is_aligned(&op[i], 64));
     if (mpy_is_aligned(&ip[i], 64)) {
@@ -594,7 +608,7 @@ imci_@func@_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
         }
     }
     LOOP_BLOCKED_END {
-        op[i] = @func@@c@(ip[i]);
+        op[i] = @kind@@c@(ip[i]);
     }
 #endif
 }

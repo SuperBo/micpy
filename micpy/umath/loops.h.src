@@ -193,10 +193,14 @@ NPY_NO_EXPORT void
  *  #TYPE = FLOAT, DOUBLE#
  */
 /**begin repeat1
- * #func = sqrt, log, exp, log2, exp2#
+ * #kind = exp, exp2, expm1, log, log10, log2, logb, log1p,
+ *         sqrt, invsqrt, cbrt, ceil, floor, rint, trunc,
+ *         cos, cosd, cosh, arccos, arccosh,
+ *         sin, sind, sinh, arcsin, arcsinh,
+ *         tan, tand, tanh, arctan, arctanh, fabs#
  */
 NPY_NO_EXPORT void
-@TYPE@_@func@(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
+@TYPE@_@kind@(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func));
 /**end repeat1**/
 /**end repeat**/
 

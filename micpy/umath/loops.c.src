@@ -1551,11 +1551,20 @@ TIMEDELTA_mm_d_divide(char **args, npy_intp *dimensions, npy_intp *steps, void *
 
 /**begin repeat1
  * Functions
- * #func = sqrt, exp, log, exp2, log2#
+ * #kind = exp, exp2, expm1, log, log10, log2, logb, log1p,
+ *         sqrt, invsqrt, cbrt, ceil, floor, rint, trunc,
+ *         cos, cosd, cosh, arccos, arccosh,
+ *         sin, sind, sinh, arcsin, arcsinh,
+ *         tan, tand, tanh, arctan, arctanh, fabs#
+ * #func = exp, exp2, expm1, log, log10, log2, logb, log1p,
+ *         sqrt, invsqrt, cbrt, ceil, floor, rint, trunc,
+ *         cos, cosd, cosh, acos, acosh,
+ *         sin, sind, sinh, asin, asinh,
+ *         tan, tand, tanh, atan, atanh, fabs#
  */
 
 NPY_NO_EXPORT void
-@TYPE@_@func@(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func))
+@TYPE@_@kind@(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func))
 {
 #ifdef __MIC__
     if (!run_unary_simd_@func@_@TYPE@(args, dimensions, steps)) {
