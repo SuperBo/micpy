@@ -58,13 +58,34 @@ NPY_NO_EXPORT int PyMicArray_GetCurrentDevice(void){
     return current_device;
 }
 
+NPY_NO_EXPORT int PyMicArray_SetCurrentDevice(int device_id){
+    if (device_id >= 0 && device_id < num_devices) {
+        current_device = device_id;
+        return 0;
+    }
+    return -1;
+}
+
 NPY_NO_EXPORT int PyMicArray_GetNumDevices(void){
     return num_devices;
 }
 
 static PyObject *
-get_current_device(PyObject *ignored, PyObject *args){
+get_current_device(PyObject *NPY_UNUSED(ignored), PyObject *args){
     return (PyObject *) PyInt_FromLong(current_device);
+}
+
+static PyObject *
+set_current_device(PyObject *NPY_UNUSED(ignored), PyObject *device_id)
+{
+    int device = -1;
+
+    if (!PyMicArray_DeviceConverter(device_id, &device)) {
+        return NULL;
+    }
+
+    current_device = device;
+    Py_RETURN_NONE;
 }
 
 static int
@@ -993,6 +1014,9 @@ static struct PyMethodDef array_module_methods[] = {
     {"device",
         (PyCFunction)get_current_device,
         METH_NOARGS, NULL},
+    {"set_device",
+        (PyCFunction)set_current_device,
+        METH_O, NULL},
     {NULL, NULL, 0, NULL}                /* sentinel */
 };
 
