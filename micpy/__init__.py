@@ -11,3 +11,8 @@ if __MICPY_SETUP__:
 else:
     from .multiarray import *
     from .umath import *
+    from numpy import (int, int_, int8, int16, int32, int64,
+                       uint, uint8, uint16, uint32, uint64,
+                       float, float_, float16, float32, float64,
+                       complex, complex_, complex64, complex128,
+                       short, long, longlong, intp, double, longdouble)
