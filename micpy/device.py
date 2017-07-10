@@ -1,2 +1,0 @@
-pymic = None
-RUNTIME = None
