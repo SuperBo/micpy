@@ -123,6 +123,19 @@ abs_intp(npy_intp x)
  *****************************************************************************
  */
 
+static void imci_reciprocal_FLOAT(npy_float *, npy_float *, const npy_intp n);
+static NPY_INLINE int
+run_unary_simd_reciprocal_FLOAT(char **args, npy_intp *dimensions, npy_intp *steps)
+{
+#if defined MPY_HAVE_IMCI_INTRINSICS
+    if (IS_BLOCKABLE_UNARY(sizeof(npy_float), 64)) {
+        imci_reciprocal_FLOAT((npy_float *)args[1], (npy_float *)args[0], dimensions[0]);
+        return 1;
+    }
+#endif
+    return 0;
+}
+
 /**begin repeat
  * Float types
  *  #type = npy_float, npy_double, npy_longdouble#
@@ -660,6 +673,37 @@ imci_@VOP@_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
 }
 
 /**end repeat1**/
+
+#if !@double@
+static void
+imci_reciprocal_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
+{
+#ifdef __MIC__
+     /* align output to 64 bytes */
+    LOOP_BLOCK_ALIGN_VAR(op, @type@, 64) {
+        op[i] = 1/ip[i];
+    }
+    assert(n < (64 / sizeof(@type@)) || mpy_is_aligned(&op[i], 64));
+    if (mpy_is_aligned(&ip[i], 64)) {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ d = @vpre@_load_@vsuf@(&ip[i]);
+            @vpre@_store_@vsuf@(&op[i], @vpre@_rcp23_@vsuf@(d));
+        }
+    }
+    else {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ d;
+            d = @vpre@_loadunpacklo_@vsuf@(d, &ip[i]);
+            d = @vpre@_loadunpackhi_@vsuf@(d, &ip[i+@vesize@]);
+            @vpre@_store_@vsuf@(&op[i], @vpre@_rcp23_@vsuf@(d));
+        }
+    }
+    LOOP_BLOCKED_END {
+        op[i] = 1/ip[i];
+    }
+#endif
+}
+#endif
 
 
 static NPY_INLINE

@@ -724,8 +724,8 @@ NPY_NO_EXPORT void
 /**begin repeat1
  * #isa = , _imci#
  * #ISA = , IMCI#
- * #CHK = 1, HAVE_ATTRIBUTE_TARGET_IMCI#
- * #ATTR = , MPY_GCC_TARGET_IMCI#
+ * #CHK = 1, HAVE_ATTRIBUTE_TARGET_MIC#
+ * #ATTR = , MPY_TARGET_MIC#
  */
 
 #if @CHK@
@@ -1914,22 +1914,6 @@ NPY_NO_EXPORT void
 }
 
 NPY_NO_EXPORT void
-@TYPE@_reciprocal(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(data))
-{
-#ifdef __MIC__
-    @type@ one = 1.@c@;
-    char * margs[] = {(char*)&one, args[0], args[1]};
-    npy_intp msteps[] = {0, steps[0], steps[1]};
-    if (!run_binary_simd_divide_@TYPE@(margs, dimensions, msteps)) {
-        UNARY_LOOP {
-            const @type@ in1 = *(@type@ *)ip1;
-            *((@type@ *)op1) = 1/in1;
-        }
-    }
-#endif
-}
-
-NPY_NO_EXPORT void
 @TYPE@__ones_like(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(data))
 {
 #ifdef __MIC__
@@ -2070,6 +2054,47 @@ NPY_NO_EXPORT void
 #define @TYPE@_true_divide @TYPE@_divide
 
 /**end repeat**/
+
+/* Special section for fast reciprocal */
+
+/**begin repeat
+ * Float types
+ *  #type = npy_double, npy_longdouble#
+ *  #TYPE = DOUBLE, LONGDOUBLE#
+ *  #c = , l#
+ *  #C = , L#
+ */
+
+NPY_NO_EXPORT void
+@TYPE@_reciprocal(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(data))
+{
+#ifdef __MIC__
+    @type@ one = 1.@c@;
+    char * margs[] = {(char*)&one, args[0], args[1]};
+    npy_intp msteps[] = {0, steps[0], steps[1]};
+    if (!run_binary_simd_divide_@TYPE@(margs, dimensions, msteps)) {
+        UNARY_LOOP {
+            const @type@ in1 = *(@type@ *)ip1;
+            *((@type@ *)op1) = 1/in1;
+        }
+    }
+#endif
+}
+
+/**end repeat**/
+
+NPY_NO_EXPORT void
+FLOAT_reciprocal(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(data))
+{
+#ifdef __MIC__
+    if (!run_unary_simd_reciprocal_FLOAT(args, dimensions, steps)) {
+        UNARY_LOOP {
+            const npy_float in1 = *(npy_float *)ip1;
+            *((npy_float *)op1) = 1/in1;
+        }
+    }
+#endif
+}
 
 /*
  *****************************************************************************
