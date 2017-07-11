@@ -449,7 +449,47 @@ _pyarray_revert(PyArrayObject *ret)
 static PyObject *
 array_copyto(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
 {
-    //TODO: implement
+
+    static char *kwlist[] = {"dst","src","casting","where",NULL};
+    PyObject *wheremask_in = NULL;
+    PyMicArrayObject *dst = NULL, *src = NULL, *wheremask = NULL;
+    NPY_CASTING casting = NPY_SAME_KIND_CASTING;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&|O&O:copyto", kwlist,
+                &PyMicArray_Type, &dst,
+                &PyMicArray_Converter, &src,
+                &PyArray_CastingConverter, &casting,
+                &wheremask_in)) {
+        goto fail;
+    }
+
+    if (wheremask_in != NULL) {
+        /* Get the boolean where mask */
+        PyArray_Descr *dtype = PyArray_DescrFromType(NPY_BOOL);
+        if (dtype == NULL) {
+            goto fail;
+        }
+        wheremask = (PyMicArrayObject *)PyMicArray_FromAny(
+                                        PyMicArray_DEVICE(dst),
+                                        wheremask_in,
+                                        dtype, 0, 0, 0, NULL);
+        if (wheremask == NULL) {
+            goto fail;
+        }
+    }
+
+    if (PyMicArray_AssignArray(dst, src, wheremask, casting) < 0) {
+        goto fail;
+    }
+
+    Py_XDECREF(src);
+    Py_XDECREF(wheremask);
+
+    Py_RETURN_NONE;
+
+fail:
+    Py_XDECREF(src);
+    Py_XDECREF(wheremask);
     return NULL;
 }
 
@@ -925,11 +965,11 @@ static struct PyMethodDef array_module_methods[] = {
         METH_VARARGS, NULL},
     {"array",
         (PyCFunction)_array_fromobject,
-        METH_VARARGS|METH_KEYWORDS, NULL},
+        METH_VARARGS|METH_KEYWORDS, NULL},*/
     {"copyto",
         (PyCFunction)array_copyto,
         METH_VARARGS|METH_KEYWORDS, NULL},
-    {"arange",
+    /*{"arange",
         (PyCFunction)array_arange,
         METH_VARARGS|METH_KEYWORDS, NULL},
     */
