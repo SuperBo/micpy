@@ -127,12 +127,14 @@ def configuration(parent_package='', top_path=None):
 
 if __name__ == '__main__':
     from numpy.distutils.core import setup
-    setup(name='micpy',
+    setup(#name='micpy',
           version='0.2',
           description='Numpy like interface for MIC device',
           author='Super Bo',
           author_email='supernbo@gmail.com',
           url='https://github.com/SuperBo/micpy',
+          license = 'BSD',
+          platforms =  ["Windows", "Linux"],
           packages=['micpy'],
           configuration=configuration,
           cmdclass={'build_ext': build_ext_offload,

@@ -21,7 +21,7 @@
 #include "number.h"
 #include "temp_elide.h"
 
-#include "binop_override.h"
+#include "mpy_binop_override.h"
 
 /*************************************************************************
  ****************   Implement Number Protocol ****************************
