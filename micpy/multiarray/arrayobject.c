@@ -40,6 +40,7 @@
 #include "getset.h"
 #include "alloc.h"
 #include "number.h"
+#include "mpy_binop_override.h"
 
 /* NUMPY_API
  * Compute the size of an array (in number of items)
@@ -405,10 +406,90 @@ _void_compare(PyArrayObject *self, PyArrayObject *other, int cmp_op)
 }
 
 NPY_NO_EXPORT PyObject *
-array_richcompare(PyArrayObject *self, PyObject *other, int cmp_op)
+array_richcompare(PyMicArrayObject *self, PyObject *other, int cmp_op)
 {
-    //TODO
-    return NULL;
+    PyMicArrayObject *array_other;
+    PyObject *obj_self = (PyObject *)self;
+    PyObject *result = NULL;
+
+    /* Special case for string arrays (which don't and currently can't have
+     * ufunc loops defined, so there's no point in trying).
+     */
+    if (!PyMicArray_ISNUMBER(self)) {
+        PyErr_SetString(PyExc_ValueError, "Only support number types");
+        return NULL;
+    }
+
+    switch (cmp_op) {
+    case Py_LT:
+        RICHCMP_GIVE_UP_IF_NEEDED(obj_self, other);
+        result = PyArray_GenericBinaryFunction(self, other, n_ops.less);
+        break;
+    case Py_LE:
+        RICHCMP_GIVE_UP_IF_NEEDED(obj_self, other);
+        result = PyArray_GenericBinaryFunction(self, other, n_ops.less_equal);
+        break;
+    case Py_EQ:
+        RICHCMP_GIVE_UP_IF_NEEDED(obj_self, other);
+        result = PyArray_GenericBinaryFunction(self,
+                (PyObject *)other,
+                n_ops.equal);
+        /*
+         * If the comparison results in NULL, then the
+         * two array objects can not be compared together;
+         * indicate that
+         */
+        if (result == NULL) {
+            /*
+             * Comparisons should raise errors when element-wise comparison
+             * is not possible.
+             */
+            /* 2015-05-14, 1.10 */
+            PyErr_Clear();
+            if (DEPRECATE("elementwise == comparison failed; "
+                          "this will raise an error in the future.") < 0) {
+                return NULL;
+            }
+
+            Py_INCREF(Py_NotImplemented);
+            return Py_NotImplemented;
+        }
+        break;
+    case Py_NE:
+        RICHCMP_GIVE_UP_IF_NEEDED(obj_self, other);
+        result = PyArray_GenericBinaryFunction(self, (PyObject *)other,
+                n_ops.not_equal);
+        if (result == NULL) {
+            /*
+             * Comparisons should raise errors when element-wise comparison
+             * is not possible.
+             */
+            /* 2015-05-14, 1.10 */
+            PyErr_Clear();
+            if (DEPRECATE("elementwise != comparison failed; "
+                          "this will raise an error in the future.") < 0) {
+                return NULL;
+            }
+
+            Py_INCREF(Py_NotImplemented);
+            return Py_NotImplemented;
+        }
+        break;
+    case Py_GT:
+        RICHCMP_GIVE_UP_IF_NEEDED(obj_self, other);
+        result = PyArray_GenericBinaryFunction(self, other,
+                n_ops.greater);
+        break;
+    case Py_GE:
+        RICHCMP_GIVE_UP_IF_NEEDED(obj_self, other);
+        result = PyArray_GenericBinaryFunction(self, other,
+                n_ops.greater_equal);
+        break;
+    default:
+        result = Py_NotImplemented;
+        Py_INCREF(result);
+    }
+    return result;
 }
 
 /*NUMPY_API
@@ -663,7 +744,7 @@ NPY_NO_EXPORT PyTypeObject PyMicArray_Type = {
     0,                                          /* tp_doc */
     (traverseproc)0,                            /* tp_traverse */
     (inquiry)0,                                 /* tp_clear */
-    0, /*TODO:(richcmpfunc)array_richcompare,*/ /* tp_richcompare */
+    (richcmpfunc)array_richcompare,             /* tp_richcompare */
     offsetof(PyMicArrayObject, weakreflist),    /* tp_weaklistoffset */
     0, /*(getiterfunc)array_iter,*/             /* tp_iter */
     0, /*(iternextfunc)0,*/                     /* tp_iternext */

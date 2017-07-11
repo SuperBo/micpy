@@ -71,21 +71,30 @@ forward_ndarray_method(PyArrayObject *self, PyObject *args, PyObject *kwds,
 
 static PyObject *
 forward_ndarray_reduce(PyMicArrayObject *self, PyObject *args, PyObject *kwds,
-                            PyObject *op)
+                            PyObject *op, int parse_dtype)
 {
     PyObject *ret = NULL, *meth;
     PyObject *newargs;
     PyObject *axis = Py_None;
+    PyObject *dtype = Py_None;
     PyObject *out = Py_None;
     PyObject *keepdims = Py_False;
 
-    static char *kwlist[] = {"axis", "out", "keepdims", NULL};
+    static char *kwlist1[] = {"axis", "out", "keepdims", NULL};
+    static char *kwlist2[] = {"axis", "dtype", "out", "keepdims", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|OOO", kwlist,
-                                    &axis, &out, &keepdims))
-        return NULL;
+    if (parse_dtype) {
+       if (!PyArg_ParseTupleAndKeywords(args, kwds, "|OOOO", kwlist2,
+                                        &axis, &dtype, &out, &keepdims))
+            return NULL;
+    }
+    else {
+        if (!PyArg_ParseTupleAndKeywords(args, kwds, "|OOO", kwlist1,
+                                        &axis, &out, &keepdims))
+            return NULL;
+    }
 
-    newargs = PyTuple_Pack(5, self, axis, Py_None, out, keepdims);
+    newargs = PyTuple_Pack(5, self, axis, dtype, out, keepdims);
     if (newargs == NULL) {
         return NULL;
     }
@@ -116,8 +125,10 @@ forward_ndarray_reduce(PyMicArrayObject *self, PyObject *args, PyObject *kwds,
         } \
         return forward_ndarray_method(self, args, kwds, callable)
 
+#define MPY_FORWARD_NDARRAY_REDUCE_NODTYPE(name) \
+        return forward_ndarray_reduce(self, args, kwds, n_ops.name, 0)
 #define MPY_FORWARD_NDARRAY_REDUCE(name) \
-        return forward_ndarray_reduce(self, args, kwds, n_ops.name)
+        return forward_ndarray_reduce(self, args, kwds, n_ops.name, 1)
 
 
 static PyObject *
@@ -318,13 +329,13 @@ array_argmin(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 static PyObject *
 array_max(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 {
-    MPY_FORWARD_NDARRAY_REDUCE(maximum);
+    MPY_FORWARD_NDARRAY_REDUCE_NODTYPE(maximum);
 }
 
 static PyObject *
 array_min(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 {
-    MPY_FORWARD_NDARRAY_REDUCE(minimum);
+    MPY_FORWARD_NDARRAY_REDUCE_NODTYPE(minimum);
 }
 
 static PyObject *
@@ -1007,8 +1018,7 @@ array_mean(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 static PyObject *
 array_sum(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 {
-    //TODO
-    return NULL;
+    MPY_FORWARD_NDARRAY_REDUCE(add);
 }
 
 
@@ -1037,8 +1047,7 @@ array_cumsum(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 static PyObject *
 array_prod(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 {
-    //TODO
-    return NULL;
+    MPY_FORWARD_NDARRAY_REDUCE(multiply);
 }
 
 static PyObject *
@@ -1094,16 +1103,14 @@ array_dot(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 static PyObject *
 array_any(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 {
-    //TODO
-    return NULL;
+    MPY_FORWARD_NDARRAY_REDUCE(logical_or);
 }
 
 
 static PyObject *
 array_all(PyMicArrayObject *self, PyObject *args, PyObject *kwds)
 {
-    //TODO
-    return NULL;
+    MPY_FORWARD_NDARRAY_REDUCE(logical_and);
 }
 
 static PyObject *
@@ -1420,13 +1427,13 @@ NPY_NO_EXPORT PyMethodDef array_methods[] = {
         METH_VARARGS, NULL},*/
 
     /* Original and Extended methods added 2005 */
-    /*{"all",
+    {"all",
         (PyCFunction)array_all,
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"any",
         (PyCFunction)array_any,
         METH_VARARGS | METH_KEYWORDS, NULL},
-    {"argmax",
+    /*{"argmax",
         (PyCFunction)array_argmax,
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"argmin",
@@ -1507,11 +1514,11 @@ NPY_NO_EXPORT PyMethodDef array_methods[] = {
         METH_VARARGS, NULL},
     {"partition",
         (PyCFunction)array_partition,
-        METH_VARARGS | METH_KEYWORDS, NULL},
+        METH_VARARGS | METH_KEYWORDS, NULL},*/
     {"prod",
         (PyCFunction)array_prod,
         METH_VARARGS | METH_KEYWORDS, NULL},
-    {"ptp",
+    /*{"ptp",
         (PyCFunction)array_ptp,
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"put",
@@ -1549,11 +1556,11 @@ NPY_NO_EXPORT PyMethodDef array_methods[] = {
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"std",
         (PyCFunction)array_stddev,
-        METH_VARARGS | METH_KEYWORDS, NULL},
+        METH_VARARGS | METH_KEYWORDS, NULL},*/
     {"sum",
         (PyCFunction)array_sum,
         METH_VARARGS | METH_KEYWORDS, NULL},
-    {"swapaxes",
+    /*{"swapaxes",
         (PyCFunction)array_swapaxes,
         METH_VARARGS, NULL},
     {"take",
