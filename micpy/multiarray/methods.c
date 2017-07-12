@@ -1523,11 +1523,11 @@ NPY_NO_EXPORT PyMethodDef array_methods[] = {
         METH_VARARGS | METH_KEYWORDS, NULL},
     {"put",
         (PyCFunction)array_put,
-        METH_VARARGS | METH_KEYWORDS, NULL},
+        METH_VARARGS | METH_KEYWORDS, NULL},*/
     {"ravel",
         (PyCFunction)array_ravel,
         METH_VARARGS | METH_KEYWORDS, NULL},
-    {"repeat",
+    /*{"repeat",
         (PyCFunction)array_repeat,
         METH_VARARGS | METH_KEYWORDS, NULL},*/
     {"reshape",

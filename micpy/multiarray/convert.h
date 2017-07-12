@@ -15,6 +15,11 @@ PyMicArray_NewCopy(PyMicArrayObject *obj, NPY_ORDER order);
 #define PyMicArray_Copy(obj) PyMicArray_NewCopy(obj, NPY_CORDER)
 
 NPY_NO_EXPORT PyObject *
+PyMicArray_CheckFromAny(int device,
+                    PyObject *op, PyArray_Descr *descr, int min_depth,
+                    int max_depth, int requires, PyObject *context);
+
+NPY_NO_EXPORT PyObject *
 PyMicArray_View(PyMicArrayObject *self,
                     PyArray_Descr *type, PyTypeObject *pytype);
 

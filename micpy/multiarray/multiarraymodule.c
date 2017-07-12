@@ -438,11 +438,251 @@ _pyarray_revert(PyArrayObject *ret)
 
 /*** END C-API FUNCTIONS **/
 
+/*
+ * NPY_RELAXED_STRIDES_CHECKING: If the strides logic is changed, the
+ * order specific stride setting is not necessary.
+ */
+static NPY_STEALS_REF_TO_ARG(1) PyObject *
+_prepend_ones(PyMicArrayObject *arr, int nd, int ndmin, NPY_ORDER order)
+{
+    npy_intp newdims[NPY_MAXDIMS];
+    npy_intp newstrides[NPY_MAXDIMS];
+    npy_intp newstride;
+    int i, k, num;
+    PyMicArrayObject *ret;
+    PyArray_Descr *dtype;
+
+    if (order == NPY_FORTRANORDER || PyMicArray_ISFORTRAN(arr) || PyMicArray_NDIM(arr) == 0) {
+        newstride = PyMicArray_DESCR(arr)->elsize;
+    }
+    else {
+        newstride = PyMicArray_STRIDES(arr)[0] * PyMicArray_DIMS(arr)[0];
+    }
+
+    num = ndmin - nd;
+    for (i = 0; i < num; i++) {
+        newdims[i] = 1;
+        newstrides[i] = newstride;
+    }
+    for (i = num; i < ndmin; i++) {
+        k = i - num;
+        newdims[i] = PyMicArray_DIMS(arr)[k];
+        newstrides[i] = PyMicArray_STRIDES(arr)[k];
+    }
+    dtype = PyMicArray_DESCR(arr);
+    Py_INCREF(dtype);
+    ret = (PyMicArrayObject *)PyMicArray_NewFromDescr(
+                        PyMicArray_DEVICE(arr),
+                        Py_TYPE(arr),
+                        dtype, ndmin, newdims, newstrides,
+                        PyMicArray_DATA(arr),
+                        PyMicArray_FLAGS(arr),
+                        (PyObject *)arr);
+    if (ret == NULL) {
+        Py_DECREF(arr);
+        return NULL;
+    }
+    /* steals a reference to arr --- so don't increment here */
+    if (PyMicArray_SetBaseObject(ret, (PyObject *)arr) < 0) {
+        Py_DECREF(ret);
+        return NULL;
+    }
+
+    return (PyObject *)ret;
+}
+
+
 #define STRIDING_OK(op, order) \
                 ((order) == NPY_ANYORDER || \
                  (order) == NPY_KEEPORDER || \
-                 ((order) == NPY_CORDER && PyArray_IS_C_CONTIGUOUS(op)) || \
-                 ((order) == NPY_FORTRANORDER && PyArray_IS_F_CONTIGUOUS(op)))
+                 ((order) == NPY_CORDER && PyMicArray_IS_C_CONTIGUOUS(op)) || \
+                 ((order) == NPY_FORTRANORDER && PyMicArray_IS_F_CONTIGUOUS(op)))
+
+static PyObject *
+_array_fromobject(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kws)
+{
+    PyObject *op;
+    PyMicArrayObject *oparr = NULL, *ret = NULL;
+    npy_bool subok = NPY_FALSE;
+    npy_bool copy = NPY_TRUE;
+    int ndmin = 0, nd;
+    PyArray_Descr *type = NULL;
+    PyArray_Descr *oldtype = NULL;
+    NPY_ORDER order = NPY_KEEPORDER;
+    int flags = 0;
+    int device;
+
+    static char *kwd[]= {"object", "dtype", "copy", "order", "subok",
+                         "ndmin", "device", NULL};
+
+    if (PyTuple_GET_SIZE(args) > 2) {
+        PyErr_SetString(PyExc_ValueError,
+                        "only 2 non-keyword arguments accepted");
+        return NULL;
+    }
+
+    /* super-fast path for ndarray argument calls */
+    if (PyTuple_GET_SIZE(args) == 0) {
+        goto full_path;
+    }
+    op = PyTuple_GET_ITEM(args, 0);
+    if (PyMicArray_CheckExact(op)) {
+        PyObject * dtype_obj = Py_None;
+        oparr = (PyMicArrayObject *)op;
+        /* get dtype which can be positional */
+        if (PyTuple_GET_SIZE(args) == 2) {
+            dtype_obj = PyTuple_GET_ITEM(args, 1);
+        }
+        else if (kws) {
+            dtype_obj = PyDict_GetItem(kws, mpy_ma_str_dtype);
+            if (dtype_obj == NULL) {
+                dtype_obj = Py_None;
+            }
+        }
+        if (dtype_obj != Py_None) {
+            goto full_path;
+        }
+
+        /* array(ndarray) */
+        if (kws == NULL) {
+            ret = (PyMicArrayObject *)PyMicArray_NewCopy(oparr, order);
+            goto finish;
+        }
+        else {
+            /* fast path for copy=False rest default (np.asarray) */
+            PyObject * copy_obj, * order_obj, *ndmin_obj;
+            copy_obj = PyDict_GetItem(kws, mpy_ma_str_copy);
+            if (copy_obj != Py_False) {
+                goto full_path;
+            }
+            copy = NPY_FALSE;
+
+            /* order does not matter for contiguous 1d arrays */
+            if (PyMicArray_NDIM((PyMicArrayObject*)op) > 1 ||
+                !PyMicArray_IS_C_CONTIGUOUS((PyMicArrayObject*)op)) {
+                order_obj = PyDict_GetItem(kws, mpy_ma_str_order);
+                if (order_obj != Py_None && order_obj != NULL) {
+                    goto full_path;
+                }
+            }
+
+            ndmin_obj = PyDict_GetItem(kws, mpy_ma_str_ndmin);
+            if (ndmin_obj) {
+                ndmin = PyLong_AsLong(ndmin_obj);
+                if (ndmin == -1 && PyErr_Occurred()) {
+                    goto clean_type;
+                }
+                else if (ndmin > NPY_MAXDIMS) {
+                    goto full_path;
+                }
+            }
+
+            /* copy=False with default dtype, order and ndim */
+            if (STRIDING_OK(oparr, order)) {
+                ret = oparr;
+                Py_INCREF(ret);
+                goto finish;
+            }
+        }
+    }
+
+full_path:
+    device = PyMicArray_GetCurrentDevice();
+
+    if(!PyArg_ParseTupleAndKeywords(args, kws, "O|O&O&O&O&iO&:array", kwd,
+                &op,
+                PyArray_DescrConverter2, &type,
+                PyArray_BoolConverter, &copy,
+                PyArray_OrderConverter, &order,
+                PyArray_BoolConverter, &subok,
+                &ndmin,
+                PyMicArray_DeviceConverter, &device)) {
+        goto clean_type;
+    }
+
+    if (ndmin > NPY_MAXDIMS) {
+        PyErr_Format(PyExc_ValueError,
+                "ndmin bigger than allowable number of dimensions "
+                "NPY_MAXDIMS (=%d)", NPY_MAXDIMS);
+        goto clean_type;
+    }
+    /* fast exit if simple call */
+    if ((subok && PyMicArray_Check(op)) ||
+        (!subok && PyMicArray_CheckExact(op))) {
+        oparr = (PyMicArrayObject *)op;
+        if (type == NULL) {
+            if (!copy && STRIDING_OK(oparr, order)) {
+                ret = oparr;
+                Py_INCREF(ret);
+                goto finish;
+            }
+            else {
+                ret = (PyMicArrayObject *)PyMicArray_NewCopy(oparr, order);
+                goto finish;
+            }
+        }
+        /* One more chance */
+        oldtype = PyMicArray_DESCR(oparr);
+        if (PyArray_EquivTypes(oldtype, type)) {
+            if (!copy && STRIDING_OK(oparr, order)) {
+                Py_INCREF(op);
+                ret = oparr;
+                goto finish;
+            }
+            else {
+                ret = (PyMicArrayObject *)PyMicArray_NewCopy(oparr, order);
+                if (oldtype == type || ret == NULL) {
+                    goto finish;
+                }
+                Py_INCREF(oldtype);
+                Py_DECREF(PyMicArray_DESCR(ret));
+                ((PyMicArrayObject *)ret)->descr = oldtype;
+                goto finish;
+            }
+        }
+    }
+
+    if (copy) {
+        flags = NPY_ARRAY_ENSURECOPY;
+    }
+    if (order == NPY_CORDER) {
+        flags |= NPY_ARRAY_C_CONTIGUOUS;
+    }
+    else if ((order == NPY_FORTRANORDER)
+                 /* order == NPY_ANYORDER && */
+                 || (PyMicArray_Check(op) &&
+                     PyMicArray_ISFORTRAN((PyMicArrayObject *)op))) {
+        flags |= NPY_ARRAY_F_CONTIGUOUS;
+    }
+    if (!subok) {
+        flags |= NPY_ARRAY_ENSUREARRAY;
+    }
+
+    flags |= NPY_ARRAY_FORCECAST;
+    Py_XINCREF(type);
+    ret = (PyMicArrayObject *)PyMicArray_CheckFromAny(device, op, type,
+                                                0, 0, flags, NULL);
+
+ finish:
+    Py_XDECREF(type);
+    if (ret == NULL) {
+        return NULL;
+    }
+
+    nd = PyMicArray_NDIM(ret);
+    if (nd >= ndmin) {
+        return (PyObject *)ret;
+    }
+    /*
+     * create a new array from the same data with ones in the shape
+     * steals a reference to ret
+     */
+    return _prepend_ones(ret, nd, ndmin, order);
+
+clean_type:
+    Py_XDECREF(type);
+    return NULL;
+}
 
 
 
@@ -962,10 +1202,10 @@ test_interrupt(PyObject *NPY_UNUSED(self), PyObject *args)
 static struct PyMethodDef array_module_methods[] = {
     /*{"set_typeDict",
         (PyCFunction)array_set_typeDict,
-        METH_VARARGS, NULL},
+        METH_VARARGS, NULL},*/
     {"array",
         (PyCFunction)_array_fromobject,
-        METH_VARARGS|METH_KEYWORDS, NULL},*/
+        METH_VARARGS|METH_KEYWORDS, NULL},
     {"copyto",
         (PyCFunction)array_copyto,
         METH_VARARGS|METH_KEYWORDS, NULL},
