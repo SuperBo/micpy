@@ -803,7 +803,6 @@ MpyIter_IsFirstVisit(MpyIter *iter, int iop)
      * because of the requirement that EXTERNAL_LOOP be enabled.
      */
     if (itflags&NPY_ITFLAG_BUFFER) {
-        //TODO: check this when implement NIT buffer
         NpyIter_BufferData *bufferdata = NIT_BUFFERDATA(iter);
         /* The outer reduce loop */
         if (NBF_REDUCE_POS(bufferdata) != 0 &&
@@ -1846,10 +1845,10 @@ mpyiter_coalesce_axes(MpyIter *iter)
 NPY_NO_EXPORT int
 mpyiter_allocate_buffers(MpyIter *iter, char **errmsg)
 {
-    //TODO
     /*npy_uint32 itflags = NIT_ITFLAGS(iter);*/
     /*int ndim = NIT_NDIM(iter);*/
     int iop = 0, nop = NIT_NOP(iter);
+    int device = NIT_DEVICE(iter);
 
     npy_intp i;
     npyiter_opitflags *op_itflags = NIT_OPITFLAGS(iter);
@@ -1867,7 +1866,7 @@ mpyiter_allocate_buffers(MpyIter *iter, char **errmsg)
          */
         if (!(flags&NPY_OP_ITFLAG_BUFNEVER)) {
             npy_intp itemsize = op_dtype[iop]->elsize;
-            buffer = PyArray_malloc(itemsize*buffersize);
+            buffer = target_malloc(itemsize*buffersize, device);
             if (buffer == NULL) {
                 if (errmsg == NULL) {
                     PyErr_NoMemory();
@@ -1886,7 +1885,7 @@ mpyiter_allocate_buffers(MpyIter *iter, char **errmsg)
 fail:
     for (i = 0; i < iop; ++i) {
         if (buffers[i] != NULL) {
-            PyArray_free(buffers[i]);
+            target_free(buffers[i], device);
             buffers[i] = NULL;
         }
     }
@@ -1986,7 +1985,6 @@ mpyiter_goto_iterindex(MpyIter *iter, npy_intp iterindex)
 NPY_NO_EXPORT void
 mpyiter_copy_from_buffers(MpyIter *iter)
 {
-    //TODO
     npy_uint32 itflags = NIT_ITFLAGS(iter);
     int ndim = NIT_NDIM(iter);
     int iop, nop = NIT_NOP(iter);
@@ -2125,28 +2123,26 @@ mpyiter_copy_from_buffers(MpyIter *iter)
                     maskptr = (npy_bool *)ad_ptrs[maskop];
                 }
 
-                /* TODO: enable when possible */
-                /* PyArray_TransferMaskedStridedToNDim(ndim_transfer, */
-                /*         ad_ptrs[iop], dst_strides, axisdata_incr, */
-                /*         buffer, src_stride, */
-                /*         maskptr, strides[maskop], */
-                /*         dst_coords, axisdata_incr, */
-                /*         dst_shape, axisdata_incr, */
-                /*         op_transfersize, dtypes[iop]->elsize, */
-                /*         (PyArray_MaskedStridedUnaryOp *)stransfer, */
-                /*         transferdata); */
+                PyMicArray_TransferMaskedStridedToNDim(ndim_transfer,
+                        ad_ptrs[iop], dst_strides, axisdata_incr,
+                        buffer, src_stride,
+                        maskptr, strides[maskop],
+                        dst_coords, axisdata_incr,
+                        dst_shape, axisdata_incr,
+                        op_transfersize, dtypes[iop]->elsize,
+                        (PyMicArray_MaskedStridedUnaryOp *)stransfer,
+                        transferdata, device);
             }
             /* Regular operand */
             else {
-                /*TODO: enable when possible */
-                /* PyArray_TransferStridedToNDim(ndim_transfer, */
-                /*         ad_ptrs[iop], dst_strides, axisdata_incr, */
-                /*         buffer, src_stride, */
-                /*         dst_coords, axisdata_incr, */
-                /*         dst_shape, axisdata_incr, */
-                /*         op_transfersize, dtypes[iop]->elsize, */
-                /*         stransfer, */
-                /*         transferdata); */
+                PyMicArray_TransferStridedToNDim(ndim_transfer,
+                        ad_ptrs[iop], dst_strides, axisdata_incr,
+                        buffer, src_stride,
+                        dst_coords, axisdata_incr,
+                        dst_shape, axisdata_incr,
+                        op_transfersize, dtypes[iop]->elsize,
+                        stransfer,
+                        transferdata, device);
             }
         }
         /* If there's no copy back, we may have to decrement refs.  In
@@ -2185,10 +2181,10 @@ mpyiter_copy_from_buffers(MpyIter *iter)
 NPY_NO_EXPORT void
 mpyiter_copy_to_buffers(MpyIter *iter, char **prev_dataptrs)
 {
-    //TODO
     npy_uint32 itflags = NIT_ITFLAGS(iter);
     int ndim = NIT_NDIM(iter);
     int iop, nop = NIT_NOP(iter);
+    int device = NIT_DEVICE(iter);
 
     npyiter_opitflags *op_itflags = NIT_OPITFLAGS(iter);
     NpyIter_BufferData *bufferdata = NIT_BUFFERDATA(iter);
@@ -2658,7 +2654,7 @@ mpyiter_copy_to_buffers(MpyIter *iter, char **prev_dataptrs)
             if (PyDataType_FLAGCHK(dtypes[iop], NPY_NEEDS_INIT)) {
                 NPY_IT_DBG_PRINT("Iterator: Buffer requires init, "
                                     "memsetting to 0\n");
-                memset(ptrs[iop], 0, dtypes[iop]->elsize*op_transfersize);
+                target_memset(ptrs[iop], 0, dtypes[iop]->elsize*op_transfersize, device);
                 /* Can't skip the transfer in this case */
                 skip_transfer = 0;
             }
@@ -2668,15 +2664,14 @@ mpyiter_copy_to_buffers(MpyIter *iter, char **prev_dataptrs)
                                 "buffer (%d items)\n",
                                 (int)iop, (int)op_transfersize);
 
-                /*TODO: enable when possible */
-                /* PyArray_TransferNDimToStrided(ndim_transfer, */
-                /*         ptrs[iop], dst_stride, */
-                /*         ad_ptrs[iop], src_strides, axisdata_incr, */
-                /*         src_coords, axisdata_incr, */
-                /*         src_shape, axisdata_incr, */
-                /*         op_transfersize, src_itemsize, */
-                /*         stransfer, */
-                /*         transferdata); */
+                PyMicArray_TransferNDimToStrided(ndim_transfer,
+                        ptrs[iop], dst_stride,
+                        ad_ptrs[iop], src_strides, axisdata_incr,
+                        src_coords, axisdata_incr,
+                        src_shape, axisdata_incr,
+                        op_transfersize, src_itemsize,
+                        stransfer,
+                        transferdata, device);
             }
         }
         else if (ptrs[iop] == buffers[iop]) {
@@ -2685,7 +2680,7 @@ mpyiter_copy_to_buffers(MpyIter *iter, char **prev_dataptrs)
                 NPY_IT_DBG_PRINT1("Iterator: Write-only buffer for "
                                     "operand %d requires init, "
                                     "memsetting to 0\n", (int)iop);
-                memset(ptrs[iop], 0, dtypes[iop]->elsize*transfersize);
+                target_memset(ptrs[iop], 0, dtypes[iop]->elsize*transfersize, device);
             }
         }
 

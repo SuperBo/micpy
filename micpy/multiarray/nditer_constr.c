@@ -186,12 +186,6 @@ MpyIter_AdvancedNew(int nop, PyMicArrayObject **op_in, npy_uint32 flags,
         return NULL;
     }
 
-    /*TODO: remove when buffer is implemented */
-    if (itflags & NPY_ITER_BUFFERED) {
-        PyErr_SetString(PyExc_ValueError, "BUFFER FLAG is not supported right now");
-        return NULL;
-    }
-
     /*
      * Before 1.8, if `oa_ndim == 0`, this meant `op_axes != NULL` was an error.
      * With 1.8, `oa_ndim == -1` takes this role, while op_axes in that case
@@ -479,7 +473,6 @@ MpyIter_AdvancedNew(int nop, PyMicArrayObject **op_in, npy_uint32 flags,
      * the single iteration optimization to the iternext function.
      */
     if (!(itflags & NPY_ITFLAG_BUFFER)) {
-        //TDO: offload to device
         NpyIter_AxisData *axisdata = NIT_AXISDATA(iter);
         if (itflags & NPY_ITFLAG_EXLOOP) {
             if (NIT_ITERSIZE(iter) == NAD_SHAPE(axisdata)) {
@@ -510,7 +503,6 @@ MpyIter_AdvancedNew(int nop, PyMicArrayObject **op_in, npy_uint32 flags,
 
     /* If buffering is set without delayed allocation */
     if (itflags & NPY_ITFLAG_BUFFER) {
-        //TODO: offload to device
         if (!npyiter_allocate_transfer_functions(iter)) {
             MpyIter_Deallocate(iter);
             return NULL;
@@ -598,6 +590,7 @@ MpyIter_Copy(MpyIter *iter)
     int ndim = NIT_NDIM(iter);
     int iop, nop = NIT_NOP(iter);
     int out_of_memory = 0;
+    int device = NIT_DEVICE(iter);
 
     npy_intp size;
     MpyIter *newiter;
@@ -610,7 +603,6 @@ MpyIter_Copy(MpyIter *iter)
     //TODO: alocate on mic device
 
     /* Copy the raw values to the new iterator */
-    //TODO: care for mic device memory
     memcpy(newiter, iter, size);
 
     /* Take ownership of references to the operands and dtypes */
@@ -642,7 +634,7 @@ MpyIter_Copy(MpyIter *iter)
                 }
                 else {
                     itemsize = dtypes[iop]->elsize;
-                    buffers[iop] = PyArray_malloc(itemsize*buffersize);
+                    buffers[iop] = target_malloc(itemsize*buffersize, device);
                     if (buffers[iop] == NULL) {
                         out_of_memory = 1;
                     }
@@ -691,6 +683,7 @@ MpyIter_Copy(MpyIter *iter)
         return NULL;
     }
 
+    mpyiter_update_offiter(newiter);
     return newiter;
 }
 
@@ -702,7 +695,7 @@ MpyIter_Deallocate(MpyIter *iter)
 {
     npy_uint32 itflags;
     /*int ndim = NIT_NDIM(iter);*/
-    int iop, nop;
+    int iop, nop, device;
     PyArray_Descr **dtype;
     PyMicArrayObject **object;
 
@@ -714,10 +707,10 @@ MpyIter_Deallocate(MpyIter *iter)
     nop = NIT_NOP(iter);
     dtype = NIT_DTYPES(iter);
     object = NIT_OPERANDS(iter);
+    device = NIT_DEVICE(iter);
 
     /* Deallocate any buffers and buffering data */
     if (itflags & NPY_ITFLAG_BUFFER) {
-        //TODO offload to mic
         NpyIter_BufferData *bufferdata = NIT_BUFFERDATA(iter);
         char **buffers;
         NpyAuxData **transferdata;
@@ -725,7 +718,7 @@ MpyIter_Deallocate(MpyIter *iter)
         /* buffers */
         buffers = NBF_BUFFERS(bufferdata);
         for(iop = 0; iop < nop; ++iop, ++buffers) {
-            PyArray_free(*buffers);
+            target_free(*buffers, device);
         }
         /* read bufferdata */
         transferdata = NBF_READTRANSFERDATA(bufferdata);
@@ -750,8 +743,8 @@ MpyIter_Deallocate(MpyIter *iter)
     }
 
     /* Deallocate device memory */
-    omp_target_disassociate_ptr(iter, NIT_DEVICE(iter));
-    omp_target_free(NIT_OFFITER(iter), NIT_DEVICE(iter));
+    omp_target_disassociate_ptr(iter, device);
+    target_free(NIT_OFFITER(iter), device);
 
     /* Deallocate the iterator memory */
     PyObject_Free(iter);

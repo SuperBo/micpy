@@ -1051,20 +1051,22 @@ iterator_loop(PyUFuncObject *ufunc,
     iter_flags = ufunc->iter_flags |
                  NPY_ITER_EXTERNAL_LOOP |
                  NPY_ITER_REFS_OK |
-                 NPY_ITER_ZEROSIZE_OK;
-    /* TODO: enable when buffer nditer is implemented */
-                 /* NPY_ITER_GROWINNER | */
-                 /* NPY_ITER_DELAY_BUFALLOC | */
-                 /* NPY_ITER_COPY_IF_OVERLAP; */
+                 NPY_ITER_ZEROSIZE_OK |
+                 NPY_ITER_BUFFERED |
+                 NPY_ITER_GROWINNER |
+                 NPY_ITER_DELAY_BUFALLOC |
+                 NPY_ITER_COPY_IF_OVERLAP;
 
     /*
      * Allocate the iterator.  Because the types of the inputs
      * were already checked, we use the casting rule 'unsafe' which
      * is faster to calculate.
      */
-    /* TODO: switch to AdvancedNew when nditer buffer is implemented */
-    iter = MpyIter_MultiNew(nop, op, iter_flags, order,
-                            NPY_UNSAFE_CASTING, op_flags, dtype);
+    iter = MpyIter_AdvancedNew(nop, op,
+                        iter_flags,
+                        order, NPY_UNSAFE_CASTING,
+                        op_flags, dtype,
+                        -1, NULL, NULL, buffersize);
     if (iter == NULL) {
         return -1;
     }

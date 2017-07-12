@@ -542,7 +542,9 @@ PyMUFunc_ReduceWrapper(PyMicArrayObject *operand, PyMicArrayObject *out,
     op_dtypes[0] = result_dtype;
     op_dtypes[1] = operand_dtype;
 
-    flags = NPY_ITER_EXTERNAL_LOOP |
+    flags = NPY_ITER_BUFFERED |
+            NPY_ITER_EXTERNAL_LOOP |
+            NPY_ITER_GROWINNER |
             NPY_ITER_DONT_NEGATE_STRIDES |
             NPY_ITER_ZEROSIZE_OK |
             NPY_ITER_REDUCE_OK |
@@ -553,9 +555,11 @@ PyMUFunc_ReduceWrapper(PyMicArrayObject *operand, PyMicArrayObject *out,
     op_flags[1] = NPY_ITER_READONLY |
                   NPY_ITER_ALIGNED;
 
-    iter = MpyIter_MultiNew(2, op, flags,
-                            NPY_KEEPORDER, casting,
-                            op_flags, op_dtypes);
+    iter = MpyIter_AdvancedNew(2, op, flags,
+                               NPY_KEEPORDER, casting,
+                               op_flags,
+                               op_dtypes,
+                               -1, NULL, NULL, buffersize);
     if (iter == NULL) {
         goto fail;
     }

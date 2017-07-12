@@ -116,6 +116,80 @@ PyMicArray_GetStridedNumericCastFn(int aligned,
                             npy_intp src_stride, npy_intp dst_stride,
                             int src_type_num, int dst_type_num);
 
+/*
+ * These two functions copy or convert the data of an n-dimensional array
+ * to/from a 1-dimensional strided buffer.  These functions will only call
+ * 'stransfer' with the provided dst_stride/src_stride and
+ * dst_strides[0]/src_strides[0], so the caller can use those values to
+ * specialize the function.
+ * Note that even if ndim == 0, everything needs to be set as if ndim == 1.
+ *
+ * The return value is the number of elements it couldn't copy.  A return value
+ * of 0 means all elements were copied, a larger value means the end of
+ * the n-dimensional array was reached before 'count' elements were copied.
+ *
+ * ndim:
+ *      The number of dimensions of the n-dimensional array.
+ * dst/src/mask:
+ *      The destination, source or mask starting pointer.
+ * dst_stride/src_stride/mask_stride:
+ *      The stride of the 1-dimensional strided buffer
+ * dst_strides/src_strides:
+ *      The strides of the n-dimensional array.
+ * dst_strides_inc/src_strides_inc:
+ *      How much to add to the ..._strides pointer to get to the next stride.
+ * coords:
+ *      The starting coordinates in the n-dimensional array.
+ * coords_inc:
+ *      How much to add to the coords pointer to get to the next coordinate.
+ * shape:
+ *      The shape of the n-dimensional array.
+ * shape_inc:
+ *      How much to add to the shape pointer to get to the next shape entry.
+ * count:
+ *      How many elements to transfer
+ * src_itemsize:
+ *      How big each element is.  If transferring between elements of different
+ *      sizes, for example a casting operation, the 'stransfer' function
+ *      should be specialized for that, in which case 'stransfer' will use
+ *      this parameter as the source item size.
+ * stransfer:
+ *      The strided transfer function.
+ * transferdata:
+ *      An auxiliary data pointer passed to the strided transfer function.
+ *      This follows the conventions of NpyAuxData objects.
+ */
+NPY_NO_EXPORT npy_intp
+PyMicArray_TransferNDimToStrided(npy_intp ndim,
+                char *dst, npy_intp dst_stride,
+                char *src, npy_intp *src_strides, npy_intp src_strides_inc,
+                npy_intp *coords, npy_intp coords_inc,
+                npy_intp *shape, npy_intp shape_inc,
+                npy_intp count, npy_intp src_itemsize,
+                PyMicArray_StridedUnaryOp *stransfer,
+                NpyAuxData *transferdata, int transferdevice);
+
+NPY_NO_EXPORT npy_intp
+PyMicArray_TransferStridedToNDim(npy_intp ndim,
+                char *dst, npy_intp *dst_strides, npy_intp dst_strides_inc,
+                char *src, npy_intp src_stride,
+                npy_intp *coords, npy_intp coords_inc,
+                npy_intp *shape, npy_intp shape_inc,
+                npy_intp count, npy_intp src_itemsize,
+                PyMicArray_StridedUnaryOp *stransfer,
+                NpyAuxData *transferdata, int transferdevice);
+
+NPY_NO_EXPORT npy_intp
+PyMicArray_TransferMaskedStridedToNDim(npy_intp ndim,
+                char *dst, npy_intp *dst_strides, npy_intp dst_strides_inc,
+                char *src, npy_intp src_stride,
+                npy_bool *mask, npy_intp mask_stride,
+                npy_intp *coords, npy_intp coords_inc,
+                npy_intp *shape, npy_intp shape_inc,
+                npy_intp count, npy_intp src_itemsize,
+                PyMicArray_MaskedStridedUnaryOp *stransfer,
+                NpyAuxData *transferdata, int transferdevice);
+
 
 #pragma omp declare target
 /*
