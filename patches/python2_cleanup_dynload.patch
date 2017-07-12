@@ -1,0 +1,277 @@
+diff --git a/Python/dynload_aix.c b/Python/dynload_aix.c
+index 149990d7995..2e631672250 100644
+--- a/Python/dynload_aix.c
++++ b/Python/dynload_aix.c
+@@ -181,3 +181,7 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+ 
+     return p;
+ }
++
++void _Py_CleanupDynLoad(void) {
++    return;
++}
+\ No newline at end of file
+diff --git a/Python/dynload_atheos.c b/Python/dynload_atheos.c
+index 65e4136380c..dc66bfe61d3 100644
+--- a/Python/dynload_atheos.c
++++ b/Python/dynload_atheos.c
+@@ -45,3 +45,8 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+ 
+     return (dl_funcptr) p;
+ }
++
++void _Py_CleanupDynLoad(void) {
++    //TODO
++    return;
++}
+\ No newline at end of file
+diff --git a/Python/dynload_beos.c b/Python/dynload_beos.c
+index f5ca1ec3aa6..699c16eb2a6 100644
+--- a/Python/dynload_beos.c
++++ b/Python/dynload_beos.c
+@@ -252,3 +252,7 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+ 
+     return p;
+ }
++
++void _Py_CleanupDynLoad(void) {
++    return;
++}
+\ No newline at end of file
+diff --git a/Python/dynload_dl.c b/Python/dynload_dl.c
+index 4675a6722ac..5f19bbfd7f9 100644
+--- a/Python/dynload_dl.c
++++ b/Python/dynload_dl.c
+@@ -24,3 +24,7 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+ 	PyOS_snprintf(funcname, sizeof(funcname), "init%.200s", shortname);
+ 	return dl_loadmod(Py_GetProgramName(), pathname, funcname);
+ }
++
++void _Py_CleanupDynLoad(void) {
++    return;
++}
+\ No newline at end of file
+diff --git a/Python/dynload_hpux.c b/Python/dynload_hpux.c
+index c6ce16ef7e5..4a33d0061b7 100644
+--- a/Python/dynload_hpux.c
++++ b/Python/dynload_hpux.c
+@@ -56,3 +56,8 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+ 
+     return p;
+ }
++
++void _Py_CleanupDynLoad(void) {
++    //TODO
++    return;
++}
+\ No newline at end of file
+diff --git a/Python/dynload_next.c b/Python/dynload_next.c
+index 7e61b5d5708..43ee14af205 100644
+--- a/Python/dynload_next.c
++++ b/Python/dynload_next.c
+@@ -112,3 +112,8 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+     p = (dl_funcptr)NSAddressOfSymbol(theSym);
+     return p;
+ }
++
++void _Py_CleanupDynLoad(void) {
++    //TODO
++    return;
++}
+\ No newline at end of file
+diff --git a/Python/dynload_os2.c b/Python/dynload_os2.c
+index e3fdb70ab68..db51db88dbb 100644
+--- a/Python/dynload_os2.c
++++ b/Python/dynload_os2.c
+@@ -44,3 +44,8 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+         p = NULL; /* Signify Failure to Acquire Entrypoint */
+     return p;
+ }
++
++void _Py_CleanupDynLoad(void) {
++    //TODO
++    return;
++}
+\ No newline at end of file
+diff --git a/Python/dynload_shlib.c b/Python/dynload_shlib.c
+index 17ebab16bad..b71d3cab178 100644
+--- a/Python/dynload_shlib.c
++++ b/Python/dynload_shlib.c
+@@ -55,6 +55,7 @@ const struct filedescr _PyImport_DynLoadFiletab[] = {
+ };
+ 
+ static struct {
++    int is_file;
+     dev_t dev;
+ #ifdef __VMS
+     ino_t ino[3];
+@@ -65,6 +66,12 @@ static struct {
+ } handles[128];
+ static int nhandles = 0;
+ 
++typedef struct handle_node {
++    int nhandles;
++    void *handles[14];
++    struct handle_node *next;
++} handle_node;
++static handle_node *handle_list = NULL;
+ 
+ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+                                     const char *pathname, FILE *fp)
+@@ -89,7 +96,8 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+         struct stat statb;
+         fstat(fileno(fp), &statb);
+         for (i = 0; i < nhandles; i++) {
+-            if (statb.st_dev == handles[i].dev &&
++            if (handles[i].is_file &&
++                statb.st_dev == handles[i].dev &&
+                 statb.st_ino == handles[i].ino) {
+                 p = (dl_funcptr) dlsym(handles[i].handle,
+                                        funcname);
+@@ -97,6 +105,7 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+             }
+         }
+         if (nhandles < 128) {
++            handles[nhandles].is_file = 1;
+             handles[nhandles].dev = statb.st_dev;
+ #ifdef __VMS
+             handles[nhandles].ino[0] = statb.st_ino[0];
+@@ -107,6 +116,9 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+ #endif
+         }
+     }
++    else if (nhandles < 128) {
++        handles[nhandles].is_file = 0;
++    }
+ 
+ #if !(defined(PYOS_OS2) && defined(PYCC_GCC))
+     dlopenflags = PyThreadState_GET()->interp->dlopenflags;
+@@ -136,8 +148,42 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+         PyErr_SetString(PyExc_ImportError, error);
+         return NULL;
+     }
+-    if (fp != NULL && nhandles < 128)
+-        handles[nhandles++].handle = handle;
++
++    if (nhandles < 128) {
++        handles[nhandles].handle = handle;
++    }
++    else {
++        if ((nhandles - 128) % 14 == 0) {
++            /* Insert new handle to head of the handle list */
++            handle_node *n = (handle_node *) malloc(sizeof(handle_node));
++            n->nhandles = 0;
++            n->next = handle_list;
++            handle_list = n;
++        }
++        handle_list->handles[handle_list->nhandles++] = handle;
++    }
++    nhandles++;
++
+     p = (dl_funcptr) dlsym(handle, funcname);
+     return p;
+ }
++
++void _Py_CleanupDynLoad(void) {
++    int i, ncache;
++    handle_node *n;
++
++    ncache = (nhandles < 128) ? nhandles : 128;
++    for (i = 0; i < ncache; i++)
++        dlclose(handles[i].handle);
++
++    while (handle_list != NULL) {
++        n = handle_list;
++        handle_list = handle_list->next;
++
++        for (i = 0; i < n->nhandles; i++)
++            dlclose(n->handles[i]);
++        free(n);
++    }
++
++    nhandles = 0;
++}
+\ No newline at end of file
+diff --git a/Python/dynload_win.c b/Python/dynload_win.c
+index 4e5555e917f..dd974a95612 100644
+--- a/Python/dynload_win.c
++++ b/Python/dynload_win.c
+@@ -24,6 +24,14 @@ const struct filedescr _PyImport_DynLoadFiletab[] = {
+     {0, 0}
+ };
+ 
++static HINSTANCE handles[128];
++static int nhandles = 0;
++typedef struct handle_node {
++    HINSTANCE handle;
++    struct handle_node *next;
++} handle_node
++static handle_node *handle_list = NULL;
++
+ 
+ /* Case insensitive string compare, to avoid any dependencies on particular
+    C RTL implementations */
+@@ -267,8 +275,35 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
+                 return NULL;
+             }
+         }
++        /* Save hDLL for cleaning up later */
++        if (nhandles < 128) {
++            handles[nhandles++] = hDLL;
++        }
++        else {
++            handle_node *n = (handle_node *) malloc(sizeof(handle_node));
++            n->handle = hDLL;
++            n->next = handle_list;
++            handle_list = n;
++        }
+         p = GetProcAddress(hDLL, funcname);
+     }
+ 
+     return p;
+ }
++
++void _Py_CleanupDynLoad(void) {
++    int i;
++    handle_node *n;
++
++    for (i = 0; i < nhandles; i++)
++        FreeLibrary(handles[i]);
++
++    while (handle_list != NULL) {
++        n = handle_list;
++        handle_list = handle_list->next;
++        FreeLibrary(n->handle);
++        free(n);
++    }
++
++    nhandles = 0;
++}
+\ No newline at end of file
+diff --git a/Python/pythonrun.c b/Python/pythonrun.c
+index 2ffecc722dc..9cfa897d256 100644
+--- a/Python/pythonrun.c
++++ b/Python/pythonrun.c
+@@ -73,6 +73,10 @@ extern void _PyGILState_Init(PyInterpreterState *, PyThreadState *);
+ extern void _PyGILState_Fini(void);
+ #endif /* WITH_THREAD */
+ 
++#ifdef HAVE_DYNAMIC_LOADING
++extern void _Py_CleanupDynLoad(void);
++#endif
++
+ int Py_DebugFlag; /* Needed by parser.c */
+ int Py_VerboseFlag; /* Needed by import.c */
+ int Py_InteractiveFlag; /* Needed by Py_FdIsInteractive() below */
+@@ -543,6 +547,11 @@ Py_Finalize(void)
+ 
+     PyGrammar_RemoveAccelerators(&_PyParser_Grammar);
+ 
++#ifdef HAVE_DYNAMIC_LOADING
++    /* Cleanup all dynamically loaded library */
++    _Py_CleanupDynLoad();
++#endif
++
+ #ifdef Py_TRACE_REFS
+     /* Display addresses (& refcnts) of all objects still alive.
+      * An address can be used to find the repr of the object, printed
