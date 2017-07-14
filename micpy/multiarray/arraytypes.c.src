@@ -1,0 +1,2644 @@
+/* -*- c -*- */
+#define PY_SSIZE_T_CLEAN
+#include "Python.h"
+#include "structmember.h"
+
+
+#define NPY_NO_DEPRECATED_API NPY_API_VERSION
+#define _NPY_NO_DEPRECATIONS /* for NPY_CHAR */
+
+#define PY_ARRAY_UNIQUE_SYMBOL MICPY_ARRAY_API
+#define NO_IMPORT_ARRAY
+#include "numpy/npy_common.h"
+#include "numpy/arrayobject.h"
+#include "numpy/arrayscalars.h"
+#include "numpy/npy_3kcompat.h"
+#include "numpy/npy_math.h"
+
+#define _MICARRAYMODULE
+#include <mpymath/halffloat.h>
+#include "arrayobject.h"
+#include "creators.h"
+//#include "npy_config.h"
+//#include "npy_sort.h"
+#include "common.h"
+//#include "creators.h"
+#include "lowlevel_strided_loops.h"
+//#include "usertypes.h"
+//#include "_datetime.h"
+#include "arrayobject.h"
+#include "alloc.h"
+#include "mpyndarraytypes.h"
+
+//#include "numpyos.h"
+//#include <string.h>
+
+#include "cblasfuncs.h"
+#include <mkl.h>
+//#include "npy_cblas.h"
+#include <limits.h>
+#include <assert.h>
+
+
+/*
+ *****************************************************************************
+ **                        PYTHON TYPES TO C TYPES                          **
+ *****************************************************************************
+ */
+
+static double
+MyPyFloat_AsDouble(PyObject *obj)
+{
+    double ret = 0;
+    PyObject *num;
+
+    if (obj == Py_None) {
+        return NPY_NAN;
+    }
+    num = PyNumber_Float(obj);
+    if (num == NULL) {
+        return NPY_NAN;
+    }
+    ret = PyFloat_AsDouble(num);
+    Py_DECREF(num);
+    return ret;
+}
+
+static npy_half
+MyPyFloat_AsHalf(PyObject *obj)
+{
+    return mpy_double_to_half(MyPyFloat_AsDouble(obj));
+}
+
+static PyObject *
+MyPyFloat_FromHalf(npy_half h)
+{
+    return PyFloat_FromDouble(mpy_half_to_double(h));
+}
+
+/* Handle case of assigning from an array scalar in setitem */
+static int
+convert_to_scalar_and_retry(PyObject *op, void *ov, void *vap,
+                      int (*setitem)(PyObject *op, void *ov, void *vap))
+{
+    PyObject *temp;
+
+    assert(PyArray_IsZeroDim(op));
+    temp = PyArray_ToScalar(PyArray_BYTES((PyArrayObject *)op),
+                                      (PyArrayObject *)op);
+    if (temp == NULL) {
+        return -1;
+    }
+    else {
+        int res = setitem(temp, ov, vap);
+        Py_DECREF(temp);
+        return res;
+    }
+}
+
+
+/**begin repeat
+ *
+ * #Type = Long, LongLong#
+ * #type = npy_long, npy_longlong#
+ */
+static @type@
+MyPyLong_As@Type@ (PyObject *obj)
+{
+    @type@ ret;
+    PyObject *num = PyNumber_Long(obj);
+
+    if (num == NULL) {
+        return -1;
+    }
+    ret = PyLong_As@Type@(num);
+    Py_DECREF(num);
+    return ret;
+}
+
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #Type = Long, LongLong#
+ * #type = npy_ulong, npy_ulonglong#
+ */
+static @type@
+MyPyLong_AsUnsigned@Type@ (PyObject *obj)
+{
+    @type@ ret;
+    PyObject *num = PyNumber_Long(obj);
+
+    if (num == NULL) {
+        return -1;
+    }
+    ret = PyLong_AsUnsigned@Type@(num);
+    if (PyErr_Occurred()) {
+        PyErr_Clear();
+        ret = PyLong_As@Type@(num);
+    }
+    Py_DECREF(num);
+    return ret;
+}
+
+/**end repeat**/
+
+/*
+ *****************************************************************************
+ **                         GETITEM AND SETITEM                             **
+ *****************************************************************************
+ */
+
+/*Just use naive memcpy to copy data
+ *TODO: investigate why numpy use copyandswap here?
+ *adapt to copyandswap if needed
+ */
+
+/**begin repeat
+ *
+ * #TYPE = BOOL, BYTE, UBYTE, SHORT, USHORT, INT, LONG, UINT, ULONG,
+ *         LONGLONG, ULONGLONG, HALF, FLOAT, DOUBLE#
+ * #func1 = PyBool_FromLong, PyInt_FromLong*6, PyLong_FromUnsignedLong*2,
+ *          PyLong_FromLongLong, PyLong_FromUnsignedLongLong,
+ *          MyPyFloat_FromHalf, PyFloat_FromDouble*2#
+ * #func2 = PyObject_IsTrue, MyPyLong_AsLong*6, MyPyLong_AsUnsignedLong*2,
+ *          MyPyLong_AsLongLong, MyPyLong_AsUnsignedLongLong,
+ *          MyPyFloat_AsHalf, MyPyFloat_AsDouble*2#
+ * #type = npy_bool,
+ *         npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int,
+ *         npy_long, npy_uint, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_half, npy_float, npy_double#
+ * #type1 = long*7, npy_ulong*2, npy_longlong, npy_ulonglong,
+ *          npy_half, npy_float, npy_double#
+ * #kind = Bool, Byte, UByte, Short, UShort, Int, Long, UInt, ULong,
+ *         LongLong, ULongLong, Half, Float, Double#
+*/
+static PyObject *
+@TYPE@_getitem(void *input, void *vap)
+{
+    PyMicArrayObject *ap = vap;
+    int device;
+    @type@ t1;
+
+    if (ap == NULL) {
+        return NULL;
+    }
+
+    device = PyMicArray_DEVICE(ap);
+    target_memcpy(&t1, input, sizeof(@type@),
+                    omp_get_initial_device(), device);
+
+    return @func1@((@type1@)t1);
+}
+
+static int
+@TYPE@_setitem(PyObject *op, void *ov, void *vap)
+{
+    PyMicArrayObject *ap = vap;
+    int device;
+    @type@ temp;  /* ensures alignment */
+
+    if (PyArray_IsScalar(op, @kind@)) {
+        temp = ((Py@kind@ScalarObject *)op)->obval;
+    }
+    else {
+        temp = (@type@)@func2@(op);
+    }
+    if (PyErr_Occurred()) {
+        PyObject *type, *value, *traceback;
+        PyErr_Fetch(&type, &value, &traceback);
+        if (PySequence_Check(op) && !PyString_Check(op) &&
+                                    !PyUnicode_Check(op)) {
+            PyErr_SetString(PyExc_ValueError,
+                    "setting an array element with a sequence.");
+            Py_DECREF(type);
+            Py_XDECREF(value);
+            Py_XDECREF(traceback);
+        }
+        else {
+            PyErr_Restore(type, value, traceback);
+        }
+        return -1;
+    }
+    if (ap == NULL){
+        return -1;
+    }
+    device = PyMicArray_DEVICE(ap);
+    target_memcpy(ov, &temp, sizeof(@type@),
+                    device, omp_get_initial_device());
+
+    return 0;
+}
+
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #TYPE = CFLOAT, CDOUBLE#
+ * #type = npy_float, npy_double#
+ */
+static PyObject *
+@TYPE@_getitem(void *input, void *vap)
+{
+    PyMicArrayObject *ap = vap;
+    int device;
+    @type@ t1, t2;
+
+    if ((ap == NULL) || PyMicArray_ISBEHAVED_RO(ap)) {
+        return NULL;
+
+    }
+
+    device = PyMicArray_DEVICE(ap);
+    #pragma omp target device(device) map(from: t1, t2)
+    {
+        t1 = ((@type@ *)input)[0];
+        t2 = ((@type@ *)input)[1];
+    }
+
+    return PyComplex_FromDoubles((double)t1, (double)t2);
+}
+
+/**end repeat**/
+
+
+/**begin repeat
+ *
+ * #NAME = CFLOAT, CDOUBLE, CLONGDOUBLE#
+ * #type = npy_cfloat, npy_cdouble, npy_clongdouble#
+ * #ftype = npy_float, npy_double, npy_longdouble#
+ * #kind = CFloat, CDouble, CLongDouble#
+ */
+static int
+@NAME@_setitem(PyObject *op, void *ov, void *vap)
+{
+    PyMicArrayObject *ap = vap;
+    int device;
+    Py_complex oop;
+    PyObject *op2;
+    @type@ temp;
+    int rsize;
+
+    if (ap == NULL) {
+        return -1;
+    }
+
+    if (PyArray_IsScalar(op, @kind@)){
+        temp = ((Py@kind@ScalarObject *)op)->obval;
+    }
+    else {
+        if (PyArray_IsZeroDim(op)) {
+            /*
+             * TODO: Elsewhere in this file we use PyArray_ToScalar. Is this
+             *       better or worse? Possibly an optimization.
+             */
+            op2 = PyArray_DESCR((PyArrayObject *)op)->f->getitem(
+                                    PyArray_BYTES((PyArrayObject *)op),
+                                    (PyArrayObject *)op);
+        }
+        else {
+            op2 = op;
+            Py_INCREF(op);
+        }
+        if (op2 == Py_None) {
+            oop.real = NPY_NAN;
+            oop.imag = NPY_NAN;
+        }
+        else {
+            oop = PyComplex_AsCComplex (op2);
+        }
+        Py_DECREF(op2);
+        if (PyErr_Occurred()) {
+            return -1;
+        }
+        temp.real = (@ftype@) oop.real;
+        temp.imag = (@ftype@) oop.imag;
+    }
+
+    rsize = sizeof(@ftype@);
+    target_memcpy(ov, &temp, rsize*2,
+                    device, omp_get_initial_device());
+    if (!PyMicArray_ISNOTSWAPPED(ap)) {
+        byte_swap_vector(ov, 2, sizeof(@ftype@));
+    }
+    return 0;
+}
+
+/**end repeat**/
+
+static NPY_INLINE npy_longdouble
+string_to_long_double(PyObject*op)
+{
+    char *s;
+    char *end;
+    npy_longdouble temp;
+    PyObject* b;
+
+    if (PyUnicode_Check(op)) {
+        b = PyUnicode_AsUTF8String(op);
+        if (!b) {
+            return 0;
+        }
+    }
+    else {
+        b = op;
+        Py_XINCREF(b);
+    }
+    s = PyBytes_AsString(b);
+    if (s) {
+        errno = 0;
+        temp = strtold(s, &end);
+        if (end==s || *end) {
+            PyErr_Format(PyExc_ValueError,
+                         "invalid literal for long double: %s",
+                         s);
+            Py_XDECREF(b);
+            return 0;
+        }
+        else if (errno) {
+            PyErr_Format(PyExc_ValueError,
+                         "invalid literal for long double: %s (%s)",
+                         s,
+                         strerror(errno));
+            Py_XDECREF(b);
+            return 0;
+        }
+        Py_XDECREF(b);
+    }
+    else {
+        /* Probably wasn't a string, try converting it via a python double */
+        PyErr_Clear();
+        Py_XDECREF(b);
+        temp = (npy_longdouble) MyPyFloat_AsDouble(op);
+    }
+    return temp;
+}
+
+static PyObject *
+LONGDOUBLE_getitem(void *ip, void *ap)
+{
+    PyMicArrayObject *map = (PyMicArrayObject *)ap;
+    npy_longdouble temp;
+    int device = PyMicArray_DEVICE(map);
+    #pragma omp target device(device) map(to: ip) map(from: temp)
+    temp = *((npy_longdouble* )ip);
+    return PyArray_Scalar(&temp, PyMicArray_DESCR(map), NULL);
+}
+
+static int
+LONGDOUBLE_setitem(PyObject *op, void *ov, void *vap)
+{
+    PyMicArrayObject *ap = vap;
+    /* ensure alignment */
+    int device;
+    npy_longdouble temp;
+
+    if (ap == NULL) {
+        return -1;
+    }
+
+    if (PyArray_IsZeroDim(op)) {
+        return convert_to_scalar_and_retry(op, ov, vap, LONGDOUBLE_setitem);
+    }
+
+    if (PyArray_IsScalar(op, LongDouble)) {
+        temp = ((PyLongDoubleScalarObject *)op)->obval;
+    }
+    else {
+        /* In case something funny happened in PyArray_IsScalar */
+        if (PyErr_Occurred()) {
+            return -1;
+        }
+        temp = string_to_long_double(op);
+    }
+    if (PyErr_Occurred()) {
+        return -1;
+    }
+
+    device = PyMicArray_DEVICE(ap);
+    #pragma omp target device(device) map(to: temp)
+    *((npy_longdouble *)ov) = temp;
+    return 0;
+}
+
+static PyObject *
+CLONGDOUBLE_getitem(void *ip, void *vap)
+{
+    PyMicArrayObject *ap = (PyMicArrayObject *)ap;
+    npy_clongdouble temp;
+    int device = PyMicArray_DEVICE(ap);
+    target_memcpy(&temp, ip, sizeof(npy_clongdouble),
+                    omp_get_initial_device(), device);
+    return PyArray_Scalar(&temp, PyMicArray_DESCR(ap), NULL);
+}
+
+/*
+ *****************************************************************************
+ **                       TYPE TO TYPE CONVERSIONS                          **
+ *****************************************************************************
+ */
+
+
+/* Assumes contiguous, and aligned, from and to */
+
+
+/**begin repeat
+ *
+ * #TOTYPE = BYTE, UBYTE, SHORT, USHORT, INT, UINT, LONG, ULONG,
+ *           LONGLONG, ULONGLONG, FLOAT, DOUBLE, LONGDOUBLE, DATETIME,
+ *           TIMEDELTA#
+ * #totype = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *           npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *           npy_float, npy_double, npy_longdouble,
+ *           npy_datetime, npy_timedelta#
+ */
+
+/**begin repeat1
+ *
+ * #FROMTYPE = BYTE, UBYTE, SHORT, USHORT, INT, UINT, LONG, ULONG,
+ *             LONGLONG, ULONGLONG, FLOAT, DOUBLE, LONGDOUBLE, DATETIME,
+ *             TIMEDELTA#
+ * #fromtype = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *             npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *             npy_float, npy_double, npy_longdouble,
+ *             npy_datetime, npy_timedelta#
+ */
+static void
+@FROMTYPE@_to_@TOTYPE@(void *input, void *output, npy_intp n,
+                       int device)
+{
+    npy_intp i;
+    const @fromtype@ *ip = input;
+    @totype@ *op = output;
+
+    #pragma omp target device(device) map(to: op, ip, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (@totype@)*ip++;
+    }
+}
+/**end repeat1**/
+
+/**begin repeat1
+ *
+ * #FROMTYPE = CFLOAT, CDOUBLE, CLONGDOUBLE#
+ * #fromtype = npy_float, npy_double, npy_longdouble#
+ */
+static void
+@FROMTYPE@_to_@TOTYPE@(void *input, void *output, npy_intp n,
+                       int device)
+{
+    npy_intp i;
+    const @fromtype@ *ip = input;
+    @totype@ *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (@totype@)*ip;
+        ip += 2;
+    }
+}
+/**end repeat1**/
+
+/**end repeat**/
+
+
+/**begin repeat
+ *
+ * #TYPE = BYTE, UBYTE, SHORT, USHORT, INT, UINT, LONG, ULONG,
+ *         LONGLONG, ULONGLONG, LONGDOUBLE, DATETIME,
+ *         TIMEDELTA#
+ * #type = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_longdouble,
+ *         npy_datetime, npy_timedelta#
+ */
+
+static void
+@TYPE@_to_HALF(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const @type@ *ip = input;
+    npy_half *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = mpy_float_to_half((float)(*ip++));
+    }
+}
+
+static void
+HALF_to_@TYPE@(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const npy_half *ip = input;
+    @type@ *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (@type@)mpy_half_to_float(*ip++);
+    }
+}
+
+/**end repeat**/
+#if NPY_SIZEOF_SHORT == 2
+#define HALF_to_HALF SHORT_to_SHORT
+#elif NPY_SIZEOF_INT == 2
+#define HALF_to_HALF INT_to_INT
+#endif
+
+/**begin repeat
+ *
+ * #TYPE = FLOAT, DOUBLE, CFLOAT, CDOUBLE#
+ * #name = float, double, float, double#
+ * #itype = npy_uint32, npy_uint64, npy_uint32, npy_uint64#
+ * #iscomplex = 0, 0, 1, 1#
+ */
+
+static void
+@TYPE@_to_HALF(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const @itype@ *ip = input;
+    npy_half *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = mpy_@name@bits_to_halfbits(*ip);
+#if @iscomplex@
+        ip += 2;
+#else
+        ip++;
+#endif
+    }
+}
+
+static void
+HALF_to_@TYPE@(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const npy_half *ip = input;
+    @itype@ *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = mpy_halfbits_to_@name@bits(*ip++);
+#if @iscomplex@
+        *op++ = 0;
+#endif
+    }
+}
+
+/**end repeat**/
+
+static void
+CLONGDOUBLE_to_HALF(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const npy_longdouble *ip = input;
+    npy_half *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = mpy_double_to_half((double) (*ip++));
+        ip += 2;
+    }
+}
+
+static void
+HALF_to_CLONGDOUBLE(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const npy_half *ip = input;
+    npy_longdouble *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = mpy_half_to_double(*ip++);
+        *op++ = 0;
+    }
+}
+
+/**begin repeat
+ *
+ * #FROMTYPE = BOOL,
+ *             BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *             LONG, ULONG, LONGLONG, ULONGLONG,
+ *             FLOAT, DOUBLE, LONGDOUBLE,
+ *             DATETIME, TIMEDELTA#
+ * #fromtype = npy_bool,
+ *             npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *             npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *             npy_float, npy_double, npy_longdouble,
+ *             npy_datetime, npy_timedelta#
+ */
+static void
+@FROMTYPE@_to_BOOL(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const @fromtype@ *ip = input;
+    npy_bool *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (npy_bool)(*ip++ != NPY_FALSE);
+    }
+}
+/**end repeat**/
+
+static void
+HALF_to_BOOL(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const npy_half *ip = input;
+    npy_bool *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (npy_bool)(!mpy_half_iszero(*ip++));
+    }
+}
+
+/**begin repeat
+ *
+ * #FROMTYPE = CFLOAT, CDOUBLE, CLONGDOUBLE#
+ * #fromtype = npy_cfloat, npy_cdouble, npy_clongdouble#
+ */
+static void
+@FROMTYPE@_to_BOOL(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const @fromtype@ *ip = input;
+    npy_bool *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op = (npy_bool)((ip->real != NPY_FALSE) ||
+                (ip->imag != NPY_FALSE));
+        op++;
+        ip++;
+    }
+}
+/**end repeat**/
+
+/**begin repeat
+ * #TOTYPE = BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *           LONG, ULONG, LONGLONG, ULONGLONG,
+ *           HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *           DATETIME, TIMEDELTA#
+ * #totype = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *           npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *           npy_half, npy_float, npy_double, npy_longdouble,
+ *           npy_datetime, npy_timedelta#
+ * #one = 1*10, NPY_HALF_ONE, 1*5#
+ * #zero = 0*10, NPY_HALF_ZERO, 0*5#
+ */
+static void
+BOOL_to_@TOTYPE@(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const npy_bool *ip = input;
+    @totype@ *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (@totype@)((*ip++ != NPY_FALSE) ? @one@ : @zero@);
+    }
+}
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #TOTYPE = CFLOAT, CDOUBLE,CLONGDOUBLE#
+ * #totype = npy_float, npy_double, npy_longdouble#
+ */
+
+/**begin repeat1
+ * #FROMTYPE = BOOL,
+ *             BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *             LONG, ULONG, LONGLONG, ULONGLONG,
+ *             FLOAT, DOUBLE, LONGDOUBLE,
+ *             DATETIME, TIMEDELTA#
+ * #fromtype = npy_bool,
+ *             npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *             npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *             npy_float, npy_double, npy_longdouble,
+ *             npy_datetime, npy_timedelta#
+ */
+static void
+@FROMTYPE@_to_@TOTYPE@(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const @fromtype@ *ip = input;
+    @totype@ *op = output;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (@totype@)*ip++;
+        *op++ = 0.0;
+    }
+}
+/**end repeat1**/
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #TOTYPE = CFLOAT,CDOUBLE,CLONGDOUBLE#
+ * #totype = npy_float, npy_double, npy_longdouble#
+ */
+
+/**begin repeat1
+ * #FROMTYPE = CFLOAT,CDOUBLE,CLONGDOUBLE#
+ * #fromtype = npy_float, npy_double, npy_longdouble#
+ */
+static void
+@FROMTYPE@_to_@TOTYPE@(void *input, void *output, npy_intp n, int device)
+{
+    npy_intp i;
+    const @fromtype@ *ip = input;
+    @totype@ *op = output;
+
+    n <<= 1;
+
+    #pragma omp target device(device) map(to: ip, op, n)
+    for (i = 0; i < n; ++i) {
+        *op++ = (@totype@)*ip++;
+    }
+}
+
+/**end repeat1**/
+/**end repeat**/
+
+
+/*
+ *****************************************************************************
+ **                               SCAN                                      **
+ *****************************************************************************
+ */
+
+
+/*
+ *****************************************************************************
+ **                             FROMSTR                                     **
+ *****************************************************************************
+ */
+
+
+/*
+ *****************************************************************************
+ **                            COPYSWAPN                                    **
+ *****************************************************************************
+ */
+
+
+static MPY_TARGET_MIC NPY_INLINE void
+_basic_copyn(void *dst, npy_intp dstride, void *src, npy_intp sstride,
+             npy_intp n, int elsize) {
+    if (src == NULL) {
+        return;
+    }
+    if (sstride == elsize && dstride == elsize) {
+        memcpy(dst, src, n*elsize);
+    }
+    else {
+        _unaligned_strided_byte_copy(dst, dstride, src, sstride,
+                n, elsize);
+    }
+}
+
+static MPY_TARGET_MIC NPY_INLINE void
+_basic_copy(void *dst, void *src, int elsize) {
+    if (src == NULL) {
+        return;
+    }
+    memcpy(dst, src, elsize);
+}
+
+
+/**begin repeat
+ *
+ * #fname = SHORT, USHORT, INT, UINT,
+ *          LONG, ULONG, LONGLONG, ULONGLONG,
+ *          HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *          DATETIME, TIMEDELTA#
+ * #fsize = SHORT, SHORT, INT, INT,
+ *          LONG, LONG, LONGLONG, LONGLONG,
+ *          HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *          DATETIME, TIMEDELTA#
+ * #type = npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_half, npy_float, npy_double, npy_longdouble,
+ *         npy_datetime, npy_timedelta#
+ */
+static void
+@fname@_copyswapn(void *dst, npy_intp dstride, void *src, npy_intp sstride,
+                   npy_intp n, int swap, int device)
+{
+    #pragma omp target device(device) map(to: dst, dstride, src, sstride, \
+                                              n, swap)
+    {
+        /* copy first if needed */
+        _basic_copyn(dst, dstride, src, sstride, n, sizeof(@type@));
+        if (swap) {
+            _strided_byte_swap(dst, dstride, n, sizeof(@type@));
+        }
+    }
+}
+
+static void
+@fname@_copyswap(void *dst, void *src, int swap, int device)
+{
+    #pragma omp target device(device) map(to: dst, src, swap)
+    {
+        /* copy first if needed */
+        _basic_copy(dst, src, sizeof(@type@));
+
+        if (swap) {
+            char *a, *b, c;
+
+            a = (char *)dst;
+#if NPY_SIZEOF_@fsize@ == 2
+            b = a + 1;
+            c = *a; *a++ = *b; *b = c;
+#elif NPY_SIZEOF_@fsize@ == 4
+            b = a + 3;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 8
+            b = a + 7;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 10
+            b = a + 9;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 12
+            b = a + 11;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 16
+            b = a + 15;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#else
+            {
+                int i, nn;
+
+                b = a + (NPY_SIZEOF_@fsize@-1);
+                nn = NPY_SIZEOF_@fsize@ / 2;
+                for (i = 0; i < nn; i++) {
+                    c = *a;
+                    *a++ = *b;
+                    *b-- = c;
+                }
+            }
+#endif
+        }
+    }
+}
+
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #fname = BOOL,
+ *          BYTE, UBYTE#
+ * #type = npy_bool,
+ *         npy_byte, npy_ubyte#
+ */
+static void
+@fname@_copyswapn(void *dst, npy_intp dstride, void *src, npy_intp sstride,
+                  npy_intp n, int NPY_UNUSED(swap), int device)
+{
+    #pragma omp target device(device) map(to: dst, dstride,\
+                                              src, sstride, n)
+    /* copy first if needed */
+    _basic_copyn(dst, dstride, src, sstride, n, sizeof(@type@));
+    /* ignore swap */
+}
+
+static void
+@fname@_copyswap(void *dst, void *src, int NPY_UNUSED(swap),
+                 int device)
+{
+    #pragma omp target device(device) map(to: dst, src)
+    /* copy first if needed */
+    _basic_copy(dst, src, sizeof(@type@));
+    /* ignore swap */
+}
+
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #fname = CFLOAT, CDOUBLE, CLONGDOUBLE#
+ * #fsize = FLOAT, DOUBLE, LONGDOUBLE#
+ * #type = npy_cfloat, npy_cdouble, npy_clongdouble#
+*/
+static void
+@fname@_copyswapn(void *dst, npy_intp dstride, void *src, npy_intp sstride,
+        npy_intp n, int swap, int device)
+{
+    #pragma omp target device(device) map(to: dst, dstride, src, sstride,\
+                                              n, swap)
+    {
+        /* copy first if needed */
+        _basic_copyn(dst, dstride, src, sstride, n, sizeof(@type@));
+
+        if (swap) {
+            _strided_byte_swap(dst, dstride, n, NPY_SIZEOF_@fsize@);
+            _strided_byte_swap(((char *)dst + NPY_SIZEOF_@fsize@), dstride,
+                    n, NPY_SIZEOF_@fsize@);
+        }
+    }
+}
+
+static void
+@fname@_copyswap(void *dst, void *src, int swap, int device)
+{
+    #pragma omp target device(device) map(to: dst, src, swap)
+    {
+        /* copy first if needed */
+        _basic_copy(dst, src, sizeof(@type@));
+
+        if (swap) {
+            char *a, *b, c;
+            a = (char *)dst;
+#if NPY_SIZEOF_@fsize@ == 4
+            b = a + 3;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+            a += 2;
+            b = a + 3;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 8
+            b = a + 7;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+            a += 4;
+            b = a + 7;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 10
+            b = a + 9;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+            a += 5;
+            b = a + 9;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 12
+            b = a + 11;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+            a += 6;
+            b = a + 11;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#elif NPY_SIZEOF_@fsize@ == 16
+            b = a + 15;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+            a += 8;
+            b = a + 15;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b-- = c;
+            c = *a; *a++ = *b; *b   = c;
+#else
+            {
+                int i, nn;
+
+                b = a + (NPY_SIZEOF_@fsize@ - 1);
+                nn = NPY_SIZEOF_@fsize@ / 2;
+                for (i = 0; i < nn; i++) {
+                    c = *a;
+                    *a++ = *b;
+                    *b-- = c;
+                }
+                a += nn;
+                b = a + (NPY_SIZEOF_@fsize@ - 1);
+                for (i = 0; i < nn; i++) {
+                    c = *a;
+                    *a++ = *b;
+                    *b-- = c;
+                }
+            }
+#endif
+        }
+    }
+}
+
+/**end repeat**/
+
+
+/*
+ *****************************************************************************
+ **                                 NONZERO                                 **
+ *****************************************************************************
+ */
+
+
+/*
+ *****************************************************************************
+ **                                 COMPARE                                 **
+ *****************************************************************************
+ */
+
+
+/* boolean type */
+
+static int
+BOOL_compare(npy_bool *ip1, npy_bool *ip2, PyMicArrayObject *ap)
+{
+    int device = PyMicArray_DEVICE(ap);
+    int result;
+
+    #pragma omp target device(device) map(to: ip1, ip2) map(from: result)
+    result = (*ip1 ? (*ip2 ? 0 : 1) : (*ip2 ? -1 : 0));
+
+    return result;
+}
+
+
+/* integer types */
+
+/**begin repeat
+ * #TYPE = BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *         LONG, ULONG, LONGLONG, ULONGLONG,
+ *         DATETIME, TIMEDELTA#
+ * #type = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_datetime, npy_timedelta#
+ */
+
+static int
+@TYPE@_compare (@type@ *pa, @type@ *pb, PyMicArrayObject *ap)
+{
+    int device = PyMicArray_DEVICE(ap);
+    int result;
+
+    #pragma omp target device(device) map(to: pa,pb) map(from: result)
+    {
+        const @type@ a = *pa;
+        const @type@ b = *pb;
+
+        result = a < b ? -1 : a == b ? 0 : 1;
+    }
+
+    return result;
+}
+
+/**end repeat**/
+
+
+/* float types */
+
+/*
+ * The real/complex comparison functions are compatible with the new sort
+ * order for nans introduced in numpy 1.4.0. All nan values now compare
+ * larger than non-nan values and are sorted to the end. The comparison
+ * order is:
+ *
+ *      Real: [R, nan]
+ *      Complex: [R + Rj, R + nanj, nan + Rj, nan + nanj]
+ *
+ *  where complex values with the same nan placements are sorted according
+ *  to the non-nan part if it exists. If both the real and imaginary parts
+ *  of complex types are non-nan the order is the same as the real parts
+ *  unless they happen to be equal, in which case the order is that of the
+ *  imaginary parts.
+ */
+
+/**begin repeat
+ *
+ * #TYPE = FLOAT, DOUBLE, LONGDOUBLE#
+ * #type = npy_float, npy_double, npy_longdouble#
+ */
+
+#define LT(a,b) ((a) < (b) || ((b) != (b) && (a) ==(a)))
+
+static int
+@TYPE@_compare(@type@ *pa, @type@ *pb)
+{
+    const @type@ a = *pa;
+    const @type@ b = *pb;
+    int ret;
+
+    if (LT(a,b)) {
+        ret = -1;
+    }
+    else if (LT(b,a)) {
+        ret = 1;
+    }
+    else {
+        ret = 0;
+    }
+    return ret;
+}
+
+
+static int
+C@TYPE@_compare(@type@ *pa, @type@ *pb)
+{
+    const @type@ ar = pa[0];
+    const @type@ ai = pa[1];
+    const @type@ br = pb[0];
+    const @type@ bi = pb[1];
+    int ret;
+
+    if (ar < br) {
+        if (ai == ai || bi != bi) {
+            ret = -1;
+        }
+        else {
+            ret = 1;
+        }
+    }
+    else if (br < ar) {
+        if (bi == bi || ai != ai) {
+            ret = 1;
+        }
+        else {
+            ret = -1;
+        }
+    }
+    else if (ar == br || (ar != ar && br != br)) {
+        if (LT(ai,bi)) {
+            ret = -1;
+        }
+        else if (LT(bi,ai)) {
+            ret = 1;
+        }
+        else {
+            ret = 0;
+        }
+    }
+    else if (ar == ar) {
+        ret = -1;
+    }
+    else {
+        ret = 1;
+    }
+
+    return ret;
+}
+
+#undef LT
+
+/**end repeat**/
+
+static int
+HALF_compare (npy_half *pa, npy_half *pb, PyArrayObject *NPY_UNUSED(ap))
+{
+    npy_half a = *pa, b = *pb;
+    npy_bool a_isnan, b_isnan;
+    int ret;
+
+    a_isnan = mpy_half_isnan(a);
+    b_isnan = mpy_half_isnan(b);
+
+    if (a_isnan) {
+        ret = b_isnan ? 0 : -1;
+    }
+    else if (b_isnan) {
+        ret = 1;
+    }
+    else if(mpy_half_lt_nonan(a, b)) {
+        ret = -1;
+    }
+    else if(mpy_half_lt_nonan(b, a)) {
+        ret = 1;
+    }
+    else {
+        ret = 0;
+    }
+
+    return ret;
+}
+
+
+/* object type */
+
+
+/* string type */
+
+
+
+/* unicode type */
+
+
+/* void type */
+
+/*
+ * If fields are defined, then compare on first field and if equal
+ * compare on second field.  Continue until done or comparison results
+ * in not_equal.
+ *
+ * Must align data passed on to sub-comparisons.
+ * Also must swap data based on to sub-comparisons.
+ */
+
+
+/*
+ *****************************************************************************
+ **                                 ARGFUNC                                 **
+ *****************************************************************************
+ */
+
+/************************** MAYBE USE CBLAS *********************************/
+
+
+#define _LESS_THAN_OR_EQUAL(a,b) ((a) <= (b))
+
+static int
+BOOL_argmax(npy_bool *ip, npy_intp n, npy_intp *max_ind, int device)
+
+{
+    /* memcmp like logical_and on i386 is maybe slower for small arrays */
+    //TODO: implement IMCI instrinsic
+/*#ifdef NPY_HAVE_SSE2_INTRINSICS
+    const __m128i zero = _mm_setzero_si128();
+    for (; i < n - (n % 32); i+=32) {
+        __m128i d1 = _mm_loadu_si128((__m128i*)&ip[i]);
+        __m128i d2 = _mm_loadu_si128((__m128i*)&ip[i + 16]);
+        d1 = _mm_cmpeq_epi8(d1, zero);
+        d2 = _mm_cmpeq_epi8(d2, zero);
+        if (_mm_movemask_epi8(_mm_min_epu8(d1, d2)) != 0xFFFF) {
+            break;
+        }
+    }
+#endif*/
+
+    #pragma omp target device(device) map(to: ip, n, max_ind)
+    {
+        npy_intp i = 0;
+        int found = 0;
+        for (i = 0; i < n; i++) {
+            if (ip[i]) {
+                *max_ind = i;
+                found = 1;
+                break;
+            }
+        }
+        if (!found)
+            *max_ind = 0;
+    }
+
+    return 0;
+}
+
+/**begin repeat
+ *
+ * #fname = BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *          LONG, ULONG, LONGLONG, ULONGLONG,
+ *          HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *          CFLOAT, CDOUBLE, CLONGDOUBLE,
+ *          DATETIME, TIMEDELTA#
+ * #type = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_half, npy_float, npy_double, npy_longdouble,
+ *         npy_float, npy_double, npy_longdouble,
+ *         npy_datetime, npy_timedelta#
+ * #isfloat = 0*10, 1*7, 0*2#
+ * #isnan = nop*10, mpy_half_isnan, isnan*6, nop*2#
+ * #le = _LESS_THAN_OR_EQUAL*10, mpy_half_le, _LESS_THAN_OR_EQUAL*8#
+ * #iscomplex = 0*14, 1*3, 0*2#
+ * #incr = ip++*14, ip+=2*3, ip++*2#
+ */
+static int
+@fname@_argmax(@type@ *ip, npy_intp n, npy_intp *max_ind, int device)
+{
+    #pragma omp target device(device) map(to: ip, n, max_ind)
+    {
+        npy_intp i;
+        @type@ mp = *ip;
+#if @iscomplex@
+        @type@ mp_im = ip[1];
+#endif
+
+        *max_ind = 0;
+
+#if @isfloat@
+        if (!@isnan@(mp))
+            /* nan encountered; it's maximal */
+#endif
+#if @iscomplex@
+        if (!@isnan@(mp_im))
+            /* nan encountered; it's maximal */
+#endif
+
+        for (i = 1; i < n; i++) {
+            @incr@;
+            /*
+            * Propagate nans, similarly as max() and min()
+            */
+#if @iscomplex@
+            /* Lexical order for complex numbers */
+            if ((ip[0] > mp) || ((ip[0] == mp) && (ip[1] > mp_im))
+                    || @isnan@(ip[0]) || @isnan@(ip[1])) {
+                mp = ip[0];
+                mp_im = ip[1];
+                *max_ind = i;
+                if (@isnan@(mp) || @isnan@(mp_im)) {
+                    /* nan encountered, it's maximal */
+                    break;
+                }
+            }
+#else
+            if (!@le@(*ip, mp)) {  /* negated, for correct nan handling */
+                mp = *ip;
+                *max_ind = i;
+#if @isfloat@
+                if (@isnan@(mp)) {
+                    /* nan encountered, it's maximal */
+                    break;
+                }
+#endif
+            }
+#endif
+        }
+    }
+    return 0;
+}
+
+/**end repeat**/
+
+static int
+BOOL_argmin(npy_bool *ip, npy_intp n, npy_intp *min_ind, int device)
+
+{
+    #pragma omp target device(device) map(to: ip, n, min_ind)
+    {
+        npy_bool * p = memchr(ip, 0, n * sizeof(*ip));
+        if (p == NULL) {
+            *min_ind = 0;
+        }
+        else {
+            *min_ind = p - ip;
+        }
+    }
+
+    return 0;
+}
+
+/**begin repeat
+ *
+ * #fname = BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *          LONG, ULONG, LONGLONG, ULONGLONG,
+ *          HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *          CFLOAT, CDOUBLE, CLONGDOUBLE#
+ * #type = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_half, npy_float, npy_double, npy_longdouble,
+ *         npy_float, npy_double, npy_longdouble#
+ * #isfloat = 0*10, 1*7#
+ * #isnan = nop*10, mpy_half_isnan, isnan*6#
+ * #le = _LESS_THAN_OR_EQUAL*10, mpy_half_le, _LESS_THAN_OR_EQUAL*6#
+ * #iscomplex = 0*14, 1*3#
+ * #incr = ip++*14, ip+=2*3#
+ */
+static int
+@fname@_argmin(@type@ *ip, npy_intp n, npy_intp *min_ind, int device)
+{
+    #pragma omp target device(device) map(to: ip, n, min_ind)
+    {
+        npy_intp i;
+        @type@ mp = *ip;
+#if @iscomplex@
+        @type@ mp_im = ip[1];
+#endif
+
+        *min_ind = 0;
+
+#if @isfloat@
+        if (!@isnan@(mp))
+            /* nan encountered; it's minimal */
+#endif
+#if @iscomplex@
+        if (!@isnan@(mp_im))
+            /* nan encountered; it's minimal */
+#endif
+
+        for (i = 1; i < n; i++) {
+            @incr@;
+            /*
+            * Propagate nans, similarly as max() and min()
+            */
+#if @iscomplex@
+            /* Lexical order for complex numbers */
+            if ((mp > ip[0]) || ((ip[0] == mp) && (mp_im > ip[1]))
+                    || @isnan@(ip[0]) || @isnan@(ip[1])) {
+                mp = ip[0];
+                mp_im = ip[1];
+                *min_ind = i;
+                if (@isnan@(mp) || @isnan@(mp_im)) {
+                    /* nan encountered, it's minimal */
+                    break;
+                }
+            }
+#else
+            if (!@le@(mp, *ip)) {  /* negated, for correct nan handling */
+                mp = *ip;
+                *min_ind = i;
+#if @isfloat@
+                if (@isnan@(mp)) {
+                    /* nan encountered, it's minimal */
+                    break;
+                }
+#endif
+            }
+#endif
+        }
+    }
+
+    return 0;
+}
+
+/**end repeat**/
+
+#undef _LESS_THAN_OR_EQUAL
+
+/**begin repeat
+ *
+ * #fname = DATETIME, TIMEDELTA#
+ * #type = npy_datetime, npy_timedelta#
+ */
+static int
+@fname@_argmin(@type@ *ip, npy_intp n, npy_intp *min_ind, int device)
+{
+    #pragma omp target device(device) map(to: ip, n, min_ind)
+    {
+        /* NPY_DATETIME_NAT is smaller than every other value, we skip
+        * it for consistency with min().
+        */
+        npy_intp i;
+        @type@ mp = NPY_DATETIME_NAT;
+
+        i = 0;
+        while (i < n && mp == NPY_DATETIME_NAT) {
+            mp = ip[i];
+            i++;
+        }
+        if (i == n) {
+            /* All NaTs: return 0 */
+            *min_ind = 0;
+        }
+        else {
+            *min_ind = i - 1;
+            for (; i < n; i++) {
+                if (mp > ip[i] && ip[i] != NPY_DATETIME_NAT) {
+                    mp = ip[i];
+                    *min_ind = i;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+/**end repeat**/
+
+
+#define VOID_argmax NULL
+
+
+#define VOID_argmin NULL
+
+
+/*
+ *****************************************************************************
+ **                                  DOT                                    **
+ *****************************************************************************
+ */
+
+/*
+ * dot means inner product
+ */
+
+/************************** MAYBE USE CBLAS *********************************/
+
+
+/**begin repeat
+ *
+ * #name = FLOAT, DOUBLE#
+ * #type = npy_float, npy_double#
+ * #prefix = s, d#
+ */
+NPY_NO_EXPORT void
+@name@_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2, void *op,
+           npy_intp n, int device)
+{
+    int is1b = blas_stride(is1, sizeof(@type@));
+    int is2b = blas_stride(is2, sizeof(@type@));
+
+    if (is1b && is2b)
+    {
+        #pragma omp target device(device) map(to: op, n, _ip1, is1, is1b,\
+                                                  _ip2, is2, is2b)
+        {
+            char *ip1 = (char *) _ip1;
+            char *ip2 = (char *) _ip2;
+
+            double sum = 0.0; /* double for stability */
+
+            while (n > 0) {
+                int chunk = n < MPY_CBLAS_CHUNK ? n : MPY_CBLAS_CHUNK;
+
+                sum += cblas_@prefix@dot(chunk,
+                                        (@type@ *) ip1, is1b,
+                                        (@type@ *) ip2, is2b);
+                /* use char strides here */
+                ip1 += chunk * is1;
+                ip2 += chunk * is2;
+                n -= chunk;
+            }
+            *((@type@ *)op) = (@type@)sum;
+        }
+    }
+    else
+    {
+        #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
+        {
+            char *ip1 = (char *) _ip1;
+            char *ip2 = (char *) _ip2;
+
+            @type@ sum = (@type@)0;  /* could make this double */
+            npy_intp i;
+
+            for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
+                const @type@ ip1r = *((@type@ *)ip1);
+                const @type@ ip2r = *((@type@ *)ip2);
+
+                sum += ip1r * ip2r;
+            }
+            *((@type@ *)op) = sum;
+        }
+    }
+}
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #name = CFLOAT, CDOUBLE#
+ * #ctype = npy_cfloat, npy_cdouble#
+ * #type = npy_float, npy_double#
+ * #prefix = c, z#
+ */
+NPY_NO_EXPORT void
+@name@_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2,
+           void *op, npy_intp n, int device)
+{
+    int is1b = blas_stride(is1, sizeof(@ctype@));
+    int is2b = blas_stride(is2, sizeof(@ctype@));
+
+    if (is1b && is2b) {
+        #pragma omp target device(device) map(to: op, n, _ip1, is1, is1b,\
+                                                  _ip2, is2, is2b)
+        {
+            char *ip1 = (char *) _ip1;
+            char *ip2 = (char *) _ip2;
+
+            double sum[2] = {0., 0.};  /* double for stability */
+
+            while (n > 0) {
+                int chunk = n < MPY_CBLAS_CHUNK ? n : MPY_CBLAS_CHUNK;
+                @type@ tmp[2];
+
+                cblas_@prefix@dotu_sub((int)n, ip1, is1b, ip2, is2b, tmp);
+                sum[0] += (double)tmp[0];
+                sum[1] += (double)tmp[1];
+                /* use char strides here */
+                ip1 += chunk * is1;
+                ip2 += chunk * is2;
+                n -= chunk;
+            }
+            ((@type@ *)op)[0] = (@type@)sum[0];
+            ((@type@ *)op)[1] = (@type@)sum[1];
+        }
+    }
+    else {
+        #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
+        {
+            char *ip1 = (char *) _ip1;
+            char *ip2 = (char *) _ip2;
+
+            @type@ sumr = (@type@)0.0;
+            @type@ sumi = (@type@)0.0;
+            npy_intp i;
+
+            for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
+                const @type@ ip1r = ((@type@ *)ip1)[0];
+                const @type@ ip1i = ((@type@ *)ip1)[1];
+                const @type@ ip2r = ((@type@ *)ip2)[0];
+                const @type@ ip2i = ((@type@ *)ip2)[1];
+
+                sumr += ip1r * ip2r - ip1i * ip2i;
+                sumi += ip1r * ip2i + ip1i * ip2r;
+            }
+            ((@type@ *)op)[0] = sumr;
+            ((@type@ *)op)[1] = sumi;
+        }
+    }
+}
+
+/**end repeat**/
+
+/**************************** NO CBLAS VERSIONS *****************************/
+
+static void
+BOOL_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2, void *op, npy_intp n,
+         int device)
+{
+    #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
+    {
+        char *ip1 = (char *) _ip1;
+        char *ip2 = (char *) _ip2;
+
+        npy_bool tmp = NPY_FALSE;
+        npy_intp i;
+
+        for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
+            if ((*((npy_bool *)ip1) != 0) && (*((npy_bool *)ip2) != 0)) {
+                tmp = NPY_TRUE;
+                break;
+            }
+        }
+        *((npy_bool *)op) = tmp;
+    }
+}
+
+/**begin repeat
+ *
+ * #name = BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *         LONG, ULONG, LONGLONG, ULONGLONG,
+ *         LONGDOUBLE, DATETIME, TIMEDELTA#
+ * #type = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_longdouble, npy_datetime, npy_timedelta#
+ * #out = npy_long, npy_ulong, npy_long, npy_ulong, npy_long, npy_ulong,
+ *        npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *        npy_longdouble, npy_datetime, npy_timedelta#
+ */
+static void
+@name@_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2, void *op, npy_intp n,
+           int device)
+{
+    #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
+    {
+        char *ip1 = (char *) _ip1;
+        char *ip2 = (char *) _ip2;
+
+        @out@ tmp = (@out@)0;
+        npy_intp i;
+
+        for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
+            tmp += (@out@)(*((@type@ *)ip1)) *
+                (@out@)(*((@type@ *)ip2));
+        }
+        *((@type@ *)op) = (@type@) tmp;
+    }
+}
+/**end repeat**/
+
+static void
+HALF_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2, void *op,
+         npy_intp n, int device)
+{
+    #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
+    {
+        char *ip1 = (char *) _ip1;
+        char *ip2 = (char *) _ip2;
+
+        float tmp = 0.0f;
+        npy_intp i;
+
+        for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
+            tmp += mpy_half_to_float(*((npy_half *)ip1)) *
+                mpy_half_to_float(*((npy_half *)ip2));
+        }
+        *((npy_half *)op) = mpy_float_to_half(tmp);
+    }
+}
+
+static void
+CLONGDOUBLE_dot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2,
+                            void *op, npy_intp n, int device)
+{
+    #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
+    {
+        char *ip1 = (char *) _ip1;
+        char *ip2 = (char *) _ip2;
+
+        npy_longdouble tmpr = 0.0L;
+        npy_longdouble tmpi = 0.0L;
+        npy_intp i;
+
+        for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
+            const npy_longdouble ip1r = ((npy_longdouble *)ip1)[0];
+            const npy_longdouble ip1i = ((npy_longdouble *)ip1)[1];
+            const npy_longdouble ip2r = ((npy_longdouble *)ip2)[0];
+            const npy_longdouble ip2i = ((npy_longdouble *)ip2)[1];
+
+            tmpr += ip1r * ip2r - ip1i * ip2i;
+            tmpi += ip1r * ip2i + ip1i * ip2r;
+        }
+        ((npy_longdouble *)op)[0] = tmpr;
+        ((npy_longdouble *)op)[1] = tmpi;
+    }
+}
+
+
+/*
+ *****************************************************************************
+ **                                 VDOT                                    **
+ *****************************************************************************
+ */
+
+/*
+ * Special vdot func for complex types
+ */
+
+/**begin repeat
+ *
+ * #name = CFLOAT, CDOUBLE#
+ * #ctype = npy_cfloat, npy_cdouble#
+ * #type = npy_float, npy_double#
+ * #prefix = c, z#
+ */
+NPY_NO_EXPORT void
+@name@_vdot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2,
+            void *op, npy_intp n, int device)
+{
+    int is1b = blas_stride(is1, sizeof(@ctype@));
+    int is2b = blas_stride(is2, sizeof(@ctype@));
+
+    if (is1b && is2b) {
+        #pragma omp target device(device) map(to: op, n, _ip1, is1, is1b,\
+                                                  _ip2, is2, is2b)
+        {
+            char *ip1 = (char *) _ip1;
+            char *ip2 = (char *) _ip2;
+
+            double sum[2] = {0., 0.};  /* double for stability */
+
+            while (n > 0) {
+                int chunk = n < MPY_CBLAS_CHUNK ? n : MPY_CBLAS_CHUNK;
+                @type@ tmp[2];
+
+                cblas_@prefix@dotc_sub((int)n, ip1, is1b, ip2, is2b, tmp);
+                sum[0] += (double)tmp[0];
+                sum[1] += (double)tmp[1];
+                /* use char strides here */
+                ip1 += chunk * is1;
+                ip2 += chunk * is2;
+                n -= chunk;
+            }
+            ((@type@ *)op)[0] = (@type@)sum[0];
+            ((@type@ *)op)[1] = (@type@)sum[1];
+        }
+    }
+    else
+    {
+        #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
+        {
+            char *ip1 = (char *) _ip1;
+            char *ip2 = (char *) _ip2;
+
+            @type@ sumr = (@type@)0.0;
+            @type@ sumi = (@type@)0.0;
+            npy_intp i;
+
+            for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
+                const @type@ ip1r = ((@type@ *)ip1)[0];
+                const @type@ ip1i = ((@type@ *)ip1)[1];
+                const @type@ ip2r = ((@type@ *)ip2)[0];
+                const @type@ ip2i = ((@type@ *)ip2)[1];
+
+                sumr += ip1r * ip2r + ip1i * ip2i;
+                sumi += ip1r * ip2i - ip1i * ip2r;
+            }
+            ((@type@ *)op)[0] = sumr;
+            ((@type@ *)op)[1] = sumi;
+        }
+    }
+}
+/**end repeat**/
+
+NPY_NO_EXPORT void
+CLONGDOUBLE_vdot(void *_ip1, npy_intp is1, void *_ip2, npy_intp is2,
+                 void *op, npy_intp n, int device)
+{
+    #pragma omp target device(device) map(to: op, n, _ip1, is1, _ip2, is2)
+    {
+        char *ip1 = (char *) _ip1;
+        char *ip2 = (char *) _ip2;
+        npy_longdouble tmpr = 0.0L;
+        npy_longdouble tmpi = 0.0L;
+        npy_intp i;
+
+        for (i = 0; i < n; i++, ip1 += is1, ip2 += is2) {
+            const npy_longdouble ip1r = ((npy_longdouble *)ip1)[0];
+            const npy_longdouble ip1i = ((npy_longdouble *)ip1)[1];
+            const npy_longdouble ip2r = ((npy_longdouble *)ip2)[0];
+            const npy_longdouble ip2i = ((npy_longdouble *)ip2)[1];
+
+            tmpr += ip1r * ip2r + ip1i * ip2i;
+            tmpi += ip1r * ip2i - ip1i * ip2r;
+        }
+        ((npy_longdouble *)op)[0] = tmpr;
+        ((npy_longdouble *)op)[1] = tmpi;
+    }
+}
+
+/*
+ *****************************************************************************
+ **                                 FILL                                    **
+ *****************************************************************************
+ */
+
+
+#define BOOL_fill NULL
+
+/* this requires buffer to be filled with objects or NULL */
+
+
+/**begin repeat
+ *
+ * #NAME = BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *         LONG, ULONG, LONGLONG, ULONGLONG,
+ *         FLOAT, DOUBLE, LONGDOUBLE,
+ *         DATETIME, TIMEDELTA#
+ * #type = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_float, npy_double, npy_longdouble,
+ *         npy_datetime, npy_timedelta#
+*/
+static void
+@NAME@_fill(@type@ *buffer, npy_intp length, int device)
+{
+    #pragma omp target device(device) map(to: buffer, length)
+    {
+        npy_intp i;
+        @type@ start = buffer[0];
+        @type@ delta = buffer[1];
+
+        delta -= start;
+        for (i = 2; i < length; ++i) {
+            buffer[i] = start + i*delta;
+        }
+    }
+}
+/**end repeat**/
+
+static void
+HALF_fill(npy_half *buffer, npy_intp length, int device)
+{
+    #pragma omp target device(device) map(to: buffer, length)
+    {
+        npy_intp i;
+        float start = mpy_half_to_float(buffer[0]);
+        float delta = mpy_half_to_float(buffer[1]);
+
+        delta -= start;
+        for (i = 2; i < length; ++i) {
+            buffer[i] = mpy_float_to_half(start + i*delta);
+        }
+    }
+}
+
+/**begin repeat
+ *
+ * #NAME = CFLOAT, CDOUBLE, CLONGDOUBLE#
+ * #type = npy_cfloat, npy_cdouble, npy_clongdouble#
+*/
+static void
+@NAME@_fill(@type@ *buffer, npy_intp length, int device)
+{
+    #pragma omp target device(device) map(to: buffer, length)
+    {
+        npy_intp i;
+        @type@ start;
+        @type@ delta;
+        start.real = buffer->real;
+        start.imag = buffer->imag;
+        delta.real = buffer[1].real;
+        delta.imag = buffer[1].imag;
+        delta.real -= start.real;
+        delta.imag -= start.imag;
+        buffer += 2;
+        for (i = 2; i < length; i++, buffer++) {
+            buffer->real = start.real + i*delta.real;
+            buffer->imag = start.imag + i*delta.imag;
+        }
+    }
+}
+/**end repeat**/
+
+
+/**begin repeat
+ *
+ * #NAME = BOOL, BYTE, UBYTE#
+ * #type = npy_bool, npy_byte, npy_ubyte#
+ */
+static void
+@NAME@_fillwithscalar(@type@ *buffer, npy_intp length, @type@ *value,
+        int device)
+{
+    @type@ val = *value;
+    #pragma omp target device(device) map(to: buffer, length, val)
+    memset(buffer, val, length);
+}
+/**end repeat**/
+
+/**begin repeat
+ *
+ * #NAME = SHORT, USHORT, INT, UINT,
+ *         LONG, ULONG, LONGLONG, ULONGLONG,
+ *         HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *         CFLOAT, CDOUBLE, CLONGDOUBLE,
+ *         DATETIME, TIMEDELTA#
+ * #type = npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_half, npy_float, npy_double, npy_longdouble,
+ *         npy_cfloat, npy_cdouble, npy_clongdouble,
+ *         npy_datetime, npy_timedelta#
+ */
+static void
+@NAME@_fillwithscalar(@type@ *buffer, npy_intp length, @type@ *value,
+        int device)
+{
+    npy_intp i;
+    @type@ val = *value;
+
+    #pragma omp target device(device) map(to: buffer, length, val)
+    for (i = 0; i < length; ++i) {
+        buffer[i] = val;
+    }
+}
+/**end repeat**/
+
+
+/*
+ *****************************************************************************
+ **                               FASTCLIP                                  **
+ *****************************************************************************
+ */
+
+#define _LESS_THAN(a, b) ((a) < (b))
+#define _GREATER_THAN(a, b) ((a) > (b))
+
+/*
+ * In fastclip, 'b' was already checked for NaN, so the half comparison
+ * only needs to check 'a' for NaN.
+ */
+
+#define _HALF_LESS_THAN(a, b) (!mpy_half_isnan(a) && mpy_half_lt_nonan(a, b))
+#define _HALF_GREATER_THAN(a, b) (!mpy_half_isnan(a) && mpy_half_lt_nonan(b, a))
+
+/**begin repeat
+ *
+ * #name = BOOL,
+ *         BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *         LONG, ULONG, LONGLONG, ULONGLONG,
+ *         HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *         DATETIME, TIMEDELTA#
+ * #type = npy_bool,
+ *         npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_half, npy_float, npy_double, npy_longdouble,
+ *         npy_datetime, npy_timedelta#
+ * #isfloat = 0*11, 1*4, 0*2#
+ * #isnan = nop*11, mpy_half_isnan, isnan*3, nop*2#
+ * #lt = _LESS_THAN*11, _HALF_LESS_THAN, _LESS_THAN*5#
+ * #gt = _GREATER_THAN*11, _HALF_GREATER_THAN, _GREATER_THAN*5#
+ */
+static void
+@name@_fastclip(@type@ *in, npy_intp ni, @type@ *min, @type@ *max, @type@ *out, int device)
+{
+    npy_intp i;
+    @type@ max_val = 0, min_val = 0;
+
+    if (max != NULL) {
+        max_val = *max;
+#if @isfloat@
+        /* NaNs result in no clipping, so optimize the case away */
+        if (@isnan@(max_val)) {
+            if (min == NULL) {
+                #pragma omp target device(device) map(to: in, out, ni)
+                memmove(out, in, ni * sizeof(@type@));
+                return;
+            }
+            max = NULL;
+        }
+#endif
+    }
+    if (min != NULL) {
+        min_val = *min;
+#if @isfloat@
+        if (@isnan@(min_val)) {
+            if (max == NULL) {
+                #pragma omp target device(device) map(to: in, out, ni)
+                memmove(out, in, ni * sizeof(@type@));
+                return;
+            }
+            min = NULL;
+        }
+#endif
+    }
+    if (max == NULL) {
+        #pragma omp target device(device) map(to: in, out, ni, min_val)
+        {
+            for (i = 0; i < ni; i++) {
+                if (@lt@(in[i], min_val)) {
+                    out[i] = min_val;
+                }
+                else {
+                    out[i] = in[i];
+                }
+            }
+        }
+    }
+    else if (min == NULL) {
+        #pragma omp target device(device) map(to: in, out, ni, max_val)
+        {
+            for (i = 0; i < ni; i++) {
+                if (@gt@(in[i], max_val)) {
+                    out[i] = max_val;
+                }
+                else {
+                    out[i] = in[i];
+                }
+            }
+        }
+    }
+    else {
+        /*
+         * Visual Studio 2015 loop vectorizer handles NaN in an unexpected
+         * manner, see: https://github.com/numpy/numpy/issues/7601
+         */
+        #pragma omp target device(device) map(to: in, out, ni, min_val, max_val)
+        {
+            #if (_MSC_VER == 1900)
+            #pragma loop( no_vector )
+            #endif
+            for (i = 0; i < ni; i++) {
+                if (@lt@(in[i], min_val)) {
+                    out[i]   = min_val;
+                }
+                else if (@gt@(in[i], max_val)) {
+                    out[i]   = max_val;
+                }
+                else {
+                    out[i] = in[i];
+                }
+            }
+        }
+    }
+}
+/**end repeat**/
+
+#undef _LESS_THAN
+#undef _GREATER_THAN
+#undef _HALF_LESS_THAN
+#undef _HALF_GREATER_THAN
+
+/**begin repeat
+ *
+ * #name = CFLOAT, CDOUBLE, CLONGDOUBLE#
+ * #type = npy_cfloat, npy_cdouble, npy_clongdouble#
+ */
+static void
+@name@_fastclip(@type@ *in, npy_intp ni, @type@ *min, @type@ *max, @type@ *out, int device)
+{
+    npy_intp i;
+    @type@ max_val, min_val;
+
+    if (max != NULL) {
+        max_val = *max;
+    }
+    if (min != NULL) {
+        min_val = *min;
+    }
+    if (max == NULL) {
+        #pragma omp target device(device) map(to: in, out, ni, min_val)
+        for (i = 0; i < ni; i++) {
+            if (PyArray_CLT(in[i],min_val)) {
+                out[i] = min_val;
+            }
+            else {
+                out[i] = in[i];
+            }
+        }
+    }
+    else if (min == NULL) {
+        #pragma omp target device(device) map(to: in, out, ni, max_val)
+        for (i = 0; i < ni; i++) {
+            if (PyArray_CGT(in[i], max_val)) {
+                out[i] = max_val;
+            }
+            else {
+                out[i] = in[i];
+            }
+        }
+    }
+    else {
+        #pragma omp target device(device) map(to: in, out, ni, min_val, max_val)
+        for (i = 0; i < ni; i++) {
+            if (PyArray_CLT(in[i], min_val)) {
+                out[i] = min_val;
+            }
+            else if (PyArray_CGT(in[i], max_val)) {
+                out[i] = max_val;
+            }
+            else {
+                out[i] = in[i];
+            }
+        }
+    }
+}
+
+/**end repeat**/
+
+#define OBJECT_fastclip NULL
+
+
+/*
+ *****************************************************************************
+ **                              FASTPUTMASK                                **
+ *****************************************************************************
+ */
+
+
+/**begin repeat
+ *
+ * #name = BOOL,
+ *         BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *         LONG, ULONG, LONGLONG, ULONGLONG,
+ *         HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *         CFLOAT, CDOUBLE, CLONGDOUBLE,
+ *         DATETIME, TIMEDELTA#
+ * #type = npy_bool, npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_half, npy_float, npy_double, npy_longdouble,
+ *         npy_cfloat, npy_cdouble, npy_clongdouble,
+ *         npy_datetime, npy_timedelta#
+*/
+static void
+@name@_fastputmask(@type@ *in, npy_bool *mask, npy_intp ni, @type@ *vals,
+        npy_intp nv, int device)
+{
+    npy_intp i, j;
+
+    if (nv == 1) {
+        @type@ s_val = *vals;
+
+        #pragma omp target device(device) map(to: in, mask, ni, s_val)
+        for (i = 0; i < ni; i++) {
+            if (mask[i]) {
+                in[i] = s_val;
+            }
+        }
+    }
+    else {
+        #pragma omp target device(device) map(to: in, mask, ni, \
+                                                  vals[0:nv], nv)
+        for (i = 0, j = 0; i < ni; i++, j++) {
+            if (j >= nv) {
+                j = 0;
+            }
+            if (mask[i]) {
+                in[i] = vals[j];
+            }
+        }
+    }
+    return;
+}
+/**end repeat**/
+
+#define OBJECT_fastputmask NULL
+
+
+/*
+ *****************************************************************************
+ **                                FASTTAKE                                 **
+ *****************************************************************************
+ */
+
+
+ /**begin repeat
+ *
+ * #name = BOOL,
+ *         BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *         LONG, ULONG, LONGLONG, ULONGLONG,
+ *         HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *         CFLOAT, CDOUBLE, CLONGDOUBLE,
+ *         DATETIME, TIMEDELTA#
+ * #type = npy_bool,
+ *         npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *         npy_half, npy_float, npy_double, npy_longdouble,
+ *         npy_cfloat, npy_cdouble, npy_clongdouble,
+ *         npy_datetime, npy_timedelta#
+*/
+static int
+@name@_fasttake(@type@ *dest, @type@ *src, npy_intp *indarray,
+                    npy_intp nindarray, npy_intp n_outer,
+                    npy_intp m_middle, npy_intp nelem,
+                    NPY_CLIPMODE clipmode, int device)
+{
+    npy_intp i, j, k, tmp;
+    NPY_BEGIN_THREADS_DEF;
+
+    NPY_BEGIN_THREADS;
+
+    switch(clipmode) {
+    case NPY_RAISE:
+        for (i = 0; i < n_outer; i++) {
+            for (j = 0; j < m_middle; j++) {
+                tmp = indarray[j];
+                /*
+                 * We don't know what axis we're operating on,
+                 * so don't report it in case of an error.
+                 */
+                if (check_and_adjust_index(&tmp, nindarray, -1, _save) < 0) {
+                    return 1;
+                }
+                #pragma omp target device(device) map(to: nelem, dest, src, tmp) \
+                                                  map(from: dest)
+                if (NPY_LIKELY(nelem == 1)) {
+                    *dest++ = *(src + tmp);
+                }
+                else {
+                    for (k = 0; k < nelem; k++) {
+                        *dest++ = *(src + tmp*nelem + k);
+                    }
+                }
+            }
+            src += nelem*nindarray;
+        }
+        break;
+    case NPY_WRAP:
+        #pragma omp target device(device) \
+                           map(to: n_outer, m_middle, nindarray, nelem,\
+                                   dest, src, indarray[0:nindarray])
+        for (i = 0; i < n_outer; i++) {
+            for (j = 0; j < m_middle; j++) {
+                tmp = indarray[j];
+                if (tmp < 0) {
+                    while (tmp < 0) {
+                        tmp += nindarray;
+                    }
+                }
+                else if (tmp >= nindarray) {
+                    while (tmp >= nindarray) {
+                        tmp -= nindarray;
+                    }
+                }
+                if (NPY_LIKELY(nelem == 1)) {
+                    *dest++ = *(src+tmp);
+                }
+                else {
+                    for (k = 0; k < nelem; k++) {
+                        *dest++ = *(src+tmp*nelem+k);
+                    }
+                }
+            }
+            src += nelem*nindarray;
+        }
+        break;
+    case NPY_CLIP:
+        #pragma omp target device(device) \
+                           map(to: n_outer, m_middle, nindarray, nelem,\
+                                   dest, src, indarray[0:nindarray])
+        for (i = 0; i < n_outer; i++) {
+            for (j = 0; j < m_middle; j++) {
+                tmp = indarray[j];
+                if (tmp < 0) {
+                    tmp = 0;
+                }
+                else if (tmp >= nindarray) {
+                    tmp = nindarray - 1;
+                }
+                if (NPY_LIKELY(nelem == 1)) {
+                    *dest++ = *(src + tmp);
+                }
+                else {
+                    for (k = 0; k < nelem; k++) {
+                        *dest++ = *(src + tmp*nelem + k);
+                    }
+                }
+            }
+            src += nelem*nindarray;
+        }
+        break;
+    }
+
+    NPY_END_THREADS;
+    return 0;
+}
+/**end repeat**/
+
+
+#define OBJECT_fasttake NULL
+
+/*
+ *****************************************************************************
+ **                       small correlate                                   **
+ *****************************************************************************
+ */
+
+
+/*
+ * Compute correlation of data with with small kernels
+ * Calling a BLAS dot product for the inner loop of the correlation is overkill
+ * for small kernels. It is faster to compute it directly.
+ * Intended to be used by _pyarray_correlate so no input verifications is done
+ * especially it does not handle the boundaries, they should be handled by the
+ * caller.
+ * Returns 0 if kernel is considered too large or types are not supported, then
+ * the regular array dot should be used to process the data.
+ *
+ * d_, dstride, nd, dtype: data pointer, its stride in bytes, number of
+ *                         elements and type of data
+ * k_, kstride, nk, ktype: kernel pointer, its stride in bytes, number of
+ *                         elements and type of data
+ * out_, ostride: output data pointer and its stride in bytes
+ */
+NPY_NO_EXPORT int
+small_correlate(const char * d_, npy_intp dstride,
+                npy_intp nd, enum NPY_TYPES dtype,
+                const char * k_, npy_intp kstride,
+                npy_intp nk, enum NPY_TYPES ktype,
+                char * out_, npy_intp ostride)
+{
+    /* only handle small kernels and uniform types */
+    if (nk > 11 || dtype != ktype) {
+        return 0;
+    }
+
+    switch (dtype) {
+/**begin repeat
+ * Float types
+ *  #type = npy_float, npy_double#
+ *  #TYPE = NPY_FLOAT, NPY_DOUBLE#
+ */
+        case @TYPE@:
+            {
+                npy_intp i;
+                const @type@ * d = (@type@*)d_;
+                const @type@ * k = (@type@*)k_;
+                @type@ * out = (@type@*)out_;
+                dstride /= sizeof(@type@);
+                kstride /= sizeof(@type@);
+                ostride /= sizeof(@type@);
+                /* unroll inner loop to optimize register usage of the kernel*/
+                switch (nk) {
+/**begin repeat1
+ *  #ksz_outer = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11# */
+                    case @ksz_outer@:
+                    {
+/**begin repeat2
+ *  #ksz = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11# */
+#if @ksz@ <= @ksz_outer@
+                        /* load kernel */
+                        const @type@ k@ksz@ = k[(@ksz@ - 1) * kstride];
+#endif
+/**end repeat2**/
+                        for (i = 0; i < nd; i++) {
+                            @type@ s = 0;
+/**begin repeat2
+ *  #ksz = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11# */
+#if @ksz@ <= @ksz_outer@
+                            s += d[(i + @ksz@ - 1) * dstride] * k@ksz@;
+#endif
+/**end repeat2**/
+                            out[i * ostride] = s;
+                        }
+                        return 1;
+                    }
+/**end repeat1**/
+                    default:
+                        return 0;
+                }
+            }
+/**end repeat**/
+        default:
+            return 0;
+    }
+}
+
+/*
+ *****************************************************************************
+ **                       SETUP FUNCTION POINTERS                           **
+ *****************************************************************************
+ */
+
+
+#define _ALIGN(type) offsetof(struct {char c; type v;}, v)
+/*
+ * Disable harmless compiler warning "4116: unnamed type definition in
+ * parentheses" which is caused by the _ALIGN macro.
+ */
+#if defined(_MSC_VER)
+#pragma warning(disable:4116)
+#endif
+
+//TODO: enable sort after implementation
+
+/**begin repeat
+ *
+ * #from = BOOL,
+ *         BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *         LONG, ULONG, LONGLONG, ULONGLONG,
+ *         HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *         CFLOAT, CDOUBLE, CLONGDOUBLE,
+ *         DATETIME, TIMEDELTA#
+ * #suff = bool,
+ *         byte, ubyte, short, ushort, int, uint,
+ *         long, ulong, longlong, ulonglong,
+ *         half, float, double, longdouble,
+ *         cfloat, cdouble, clongdouble,
+ *         datetime, timedelta#
+ * #sort = 0*18, 0*2#
+ * #num = 1*15, 2*3, 1*2#
+ * #fromtype = npy_bool,
+ *             npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
+ *             npy_long, npy_ulong, npy_longlong, npy_ulonglong,
+ *             npy_half, npy_float, npy_double, npy_longdouble,
+ *             npy_float, npy_double, npy_longdouble,
+ *             npy_datetime, npy_timedelta#
+ * #NAME = Bool,
+ *         Byte, UByte, Short, UShort, Int, UInt,
+ *         Long, ULong, LongLong, ULongLong,
+ *         Half, Float, Double, LongDouble,
+ *         CFloat, CDouble, CLongDouble,
+ *         Datetime, Timedelta#
+ * #kind = GENBOOL,
+ *         SIGNED, UNSIGNED, SIGNED, UNSIGNED, SIGNED, UNSIGNED,
+ *         SIGNED, UNSIGNED, SIGNED, UNSIGNED,
+ *         FLOATING, FLOATING, FLOATING, FLOATING,
+ *         COMPLEX, COMPLEX, COMPLEX,
+ *         DATETIME, TIMEDELTA#
+ * #endian = |*3, =*15, =*2#
+ * #isobject= 0*18,0*2#
+ */
+
+static PyMicArray_ArrFuncs _Py@NAME@_MicArrFuncs = {
+    {
+        @from@_to_BOOL,
+        @from@_to_BYTE,
+        @from@_to_UBYTE,
+        @from@_to_SHORT,
+        @from@_to_USHORT,
+        @from@_to_INT,
+        @from@_to_UINT,
+        @from@_to_LONG,
+        @from@_to_ULONG,
+        @from@_to_LONGLONG,
+        @from@_to_ULONGLONG,
+        @from@_to_FLOAT,
+        @from@_to_DOUBLE,
+        @from@_to_LONGDOUBLE,
+        @from@_to_CFLOAT,
+        @from@_to_CDOUBLE,
+        @from@_to_CLONGDOUBLE,
+        NULL,
+        NULL,
+        NULL
+    },
+    NULL, //TODO: @from@_getitem,
+    NULL, //TODO: @from@_setitem,
+    (PyMicArray_CopySwapNFunc*)@from@_copyswapn,
+    (PyMicArray_CopySwapFunc*)@from@_copyswap,
+    NULL, //TODO: (PyMicArray_CompareFunc*)@from@_compare,
+    (PyMicArray_ArgFunc*)@from@_argmax,
+    (PyMicArray_DotFunc*)@from@_dot,
+    NULL, //TODO: (PyArray_NonzeroFunc*)@from@_nonzero,
+    (PyMicArray_FillFunc*)@from@_fill,
+    (PyMicArray_FillWithScalarFunc*)@from@_fillwithscalar,
+#if @sort@
+    {
+        quicksort_@suff@,
+        heapsort_@suff@,
+        mergesort_@suff@
+    },
+    {
+        aquicksort_@suff@,
+        aheapsort_@suff@,
+        amergesort_@suff@
+    },
+#else
+    {
+        NULL, NULL, NULL
+    },
+    {
+        NULL, NULL, NULL
+    },
+#endif
+
+    (PyMicArray_FastClipFunc*)@from@_fastclip,
+    (PyMicArray_FastPutmaskFunc*)@from@_fastputmask,
+    (PyMicArray_FastTakeFunc*)@from@_fasttake,
+    (PyMicArray_ArgFunc*)@from@_argmin
+};
+
+/**end repeat**/
+
+static PyMicArray_ArrFuncs _dummy_MicArrFuncs = {
+    {
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+    },
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    {
+        NULL, NULL, NULL
+    },
+    {
+        NULL, NULL, NULL
+    },
+    NULL, NULL, NULL, NULL
+};
+
+/*
+ *****************************************************************************
+ **                             SETUP TYPE INFO                             **
+ *****************************************************************************
+ */
+
+
+/*
+ *****************************************************************************
+ **                             SWITCH TYPES FUNC                           **
+ *****************************************************************************
+ */
+
+NPY_NO_EXPORT PyMicArray_ArrFuncs *
+PyMicArray_GetArrFuncs(int typenum) {
+    switch (typenum) {
+/**begin repeat
+ *
+ * #type = BOOL,
+ *         BYTE, UBYTE, SHORT, USHORT, INT, UINT,
+ *         LONG, ULONG, LONGLONG, ULONGLONG,
+ *         HALF, FLOAT, DOUBLE, LONGDOUBLE,
+ *         CFLOAT, CDOUBLE, CLONGDOUBLE,
+ *         DATETIME, TIMEDELTA#
+ * #NAME = Bool,
+ *         Byte, UByte, Short, UShort, Int, UInt,
+ *         Long, ULong, LongLong, ULongLong,
+ *         Half, Float, Double, LongDouble,
+ *         CFloat, CDouble, CLongDouble,
+ *         Datetime, Timedelta#
+ */
+    case NPY_@type@:
+        return &_Py@NAME@_MicArrFuncs;
+ /**end repeat**/
+    }
+
+    /*  Return dummy arrfuncs */
+    return &_dummy_MicArrFuncs;
+}

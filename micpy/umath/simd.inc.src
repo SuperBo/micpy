@@ -1,0 +1,859 @@
+/* -*- c -*- */
+
+/*
+ * This file is for the definitions of simd vectorized operations.
+ *
+ * Currently contains KNC functions that are built on amd64, x32 or
+ * non-generic builds (CFLAGS=-march=...)
+ * In future it may contain other instruction sets like AVX or NEON detected
+ * at runtime in which case it needs to be included indirectly via a file
+ * compiled with special options (or use gcc target attributes) so the binary
+ * stays portable.
+ */
+
+
+#ifndef __MPY_SIMD_INC
+#define __MPY_SIMD_INC
+
+#include "mpy_lowlevel_strided_loops.h"
+#include "common.h"
+/* for NO_FLOATING_POINT_SUPPORT */
+//#include "numpy/ufuncobject.h"
+//#include "numpy/npy_math.h"
+#include <immintrin.h>
+#include <assert.h>
+#include <stdlib.h>
+#include <float.h>
+#include <string.h> /* for memcpy */
+
+#pragma omp declare target
+
+/* Figure out the right abs function for pointer addresses */
+static NPY_INLINE npy_intp
+abs_intp(npy_intp x)
+{
+#if (NPY_SIZEOF_INTP <= NPY_SIZEOF_INT)
+    return abs(x);
+#elif (NPY_SIZEOF_INTP <= NPY_SIZEOF_LONG)
+    return labs(x);
+#elif defined(_MSC_VER) && (_MSC_VER < 1600)
+    /* llabs is not available with Visual Studio 2008 */
+    return x > 0 ? x : -x;
+#else
+    return llabs(x);
+#endif
+}
+
+/*
+ * stride is equal to element size and input and destination are equal or
+ * don't overlap within one register
+ */
+#define IS_BLOCKABLE_UNARY(esize, vsize) \
+    (steps[0] == (esize) && steps[0] == steps[1] && \
+     (mpy_is_aligned(args[0], esize) && mpy_is_aligned(args[1], esize)) && \
+     ((abs_intp(args[1] - args[0]) >= (vsize)) || \
+      ((abs_intp(args[1] - args[0]) == 0))))
+
+#define IS_BLOCKABLE_REDUCE(esize, vsize) \
+    (steps[1] == (esize) && abs_intp(args[1] - args[0]) >= (vsize) && \
+     mpy_is_aligned(args[1], (esize)) && \
+     mpy_is_aligned(args[0], (esize)))
+
+#define IS_BLOCKABLE_BINARY(esize, vsize) \
+    (steps[0] == steps[1] && steps[1] == steps[2] && steps[2] == (esize) && \
+     mpy_is_aligned(args[2], (esize)) && mpy_is_aligned(args[1], (esize)) && \
+     mpy_is_aligned(args[0], (esize)) && \
+     (abs_intp(args[2] - args[0]) >= (vsize) || \
+      abs_intp(args[2] - args[0]) == 0) && \
+     (abs_intp(args[2] - args[1]) >= (vsize) || \
+      abs_intp(args[2] - args[1]) >= 0))
+
+#define IS_BLOCKABLE_BINARY_SCALAR1(esize, vsize) \
+    (steps[0] == 0 && steps[1] == steps[2] && steps[2] == (esize) && \
+     mpy_is_aligned(args[2], (esize)) && mpy_is_aligned(args[1], (esize)) && \
+     ((abs_intp(args[2] - args[1]) >= (vsize)) || \
+      (abs_intp(args[2] - args[1]) == 0)) && \
+     abs_intp(args[2] - args[0]) >= (esize))
+
+#define IS_BLOCKABLE_BINARY_SCALAR2(esize, vsize) \
+    (steps[1] == 0 && steps[0] == steps[2] && steps[2] == (esize) && \
+     mpy_is_aligned(args[2], (esize)) && mpy_is_aligned(args[0], (esize)) && \
+     ((abs_intp(args[2] - args[0]) >= (vsize)) || \
+      (abs_intp(args[2] - args[0]) == 0)) && \
+     abs_intp(args[2] - args[1]) >= (esize))
+
+#undef abs_intp
+
+#define IS_BLOCKABLE_BINARY_BOOL(esize, vsize) \
+    (steps[0] == (esize) && steps[0] == steps[1] && steps[2] == (1) && \
+     mpy_is_aligned(args[1], (esize)) && \
+     mpy_is_aligned(args[0], (esize)))
+
+#define IS_BLOCKABLE_BINARY_SCALAR1_BOOL(esize, vsize) \
+    (steps[0] == 0 && steps[1] == (esize) && steps[2] == (1) && \
+     mpy_is_aligned(args[1], (esize)))
+
+#define IS_BLOCKABLE_BINARY_SCALAR2_BOOL(esize, vsize) \
+    (steps[0] == (esize) && steps[1] == 0 && steps[2] == (1) && \
+     mpy_is_aligned(args[0], (esize)))
+
+/* align var to alignment */
+#define LOOP_BLOCK_ALIGN_VAR(var, type, alignment)\
+    npy_intp i, peel = mpy_aligned_block_offset(var, sizeof(type),\
+                                                alignment, n);\
+    for(i = 0; i < peel; i++)
+
+#define LOOP_BLOCKED(type, vsize)\
+    for(; i < mpy_blocked_end(peel, sizeof(type), vsize, n);\
+            i += (vsize / sizeof(type)))
+
+#define LOOP_BLOCKED_END\
+    for (; i < n; i++)
+
+
+/*
+ * Dispatcher functions
+ * decide whether the operation can be vectorized and run it
+ * if it was run returns true and false if nothing was done
+ */
+
+/*
+ *****************************************************************************
+ **                           FLOAT DISPATCHERS
+ *****************************************************************************
+ */
+
+static void imci_reciprocal_FLOAT(npy_float *, npy_float *, const npy_intp n);
+static NPY_INLINE int
+run_unary_simd_reciprocal_FLOAT(char **args, npy_intp *dimensions, npy_intp *steps)
+{
+#if defined MPY_HAVE_IMCI_INTRINSICS
+    if (IS_BLOCKABLE_UNARY(sizeof(npy_float), 64)) {
+        imci_reciprocal_FLOAT((npy_float *)args[1], (npy_float *)args[0], dimensions[0]);
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+/**begin repeat
+ * Float types
+ *  #type = npy_float, npy_double, npy_longdouble#
+ *  #TYPE = FLOAT, DOUBLE, LONGDOUBLE#
+ *  #vector = 1, 1, 0#
+ */
+
+/**begin repeat1
+ * #func = exp, exp2, expm1, log, log10, log2, logb, log1p,
+ *         sqrt, invsqrt, cbrt, ceil, floor, rint, trunc,
+ *         cos, cosd, cosh, acos, acosh,
+ *         sin, sind, sinh, asin, asinh,
+ *         tan, tand, tanh, atan, atanh, fabs,
+ *         absolute, negative, minimum, maximum#
+ * #check = IS_BLOCKABLE_UNARY*33, IS_BLOCKABLE_REDUCE*2 #
+ * #name = unary*33, unary_reduce*2#
+ * #minmax = 0*33, 1*2#
+ */
+
+#if @vector@ && defined MPY_HAVE_IMCI_INTRINSICS
+
+/* prototypes */
+static void
+imci_@func@_@TYPE@(@type@ *, @type@ *, const npy_intp n);
+
+#endif
+
+static NPY_INLINE int
+run_@name@_simd_@func@_@TYPE@(char **args, npy_intp *dimensions, npy_intp *steps)
+{
+#if @minmax@ && (defined NO_FLOATING_POINT_SUPPORT)
+    return 0;
+#else
+#if @vector@ && defined MPY_HAVE_IMCI_INTRINSICS
+    if (@check@(sizeof(@type@), 64)) {
+        imci_@func@_@TYPE@((@type@*)args[1], (@type@*)args[0], dimensions[0]);
+        return 1;
+    }
+#endif
+    return 0;
+#endif
+}
+
+/**end repeat1**/
+
+/**begin repeat1
+ * Arithmetic
+ * # kind = add, subtract, multiply, divide, maximum, minimum#
+ */
+
+#if @vector@ && defined MPY_HAVE_IMCI_INTRINSICS
+
+/* prototypes */
+static void
+imci_binary_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2,
+                          npy_intp n);
+static void
+imci_binary_scalar1_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2,
+                                  npy_intp n);
+static void
+imci_binary_scalar2_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2,
+                                  npy_intp n);
+
+#endif
+
+static NPY_INLINE int
+run_binary_simd_@kind@_@TYPE@(char **args, npy_intp *dimensions, npy_intp *steps)
+{
+#if @vector@ && defined MPY_HAVE_IMCI_INTRINSICS
+    @type@ * ip1 = (@type@ *)args[0];
+    @type@ * ip2 = (@type@ *)args[1];
+    @type@ * op = (@type@ *)args[2];
+    npy_intp n = dimensions[0];
+    /* argument one scalar */
+    if (IS_BLOCKABLE_BINARY_SCALAR1(sizeof(@type@), 64)) {
+        imci_binary_scalar1_@kind@_@TYPE@(op, ip1, ip2, n);
+        return 1;
+    }
+    /* argument two scalar */
+    else if (IS_BLOCKABLE_BINARY_SCALAR2(sizeof(@type@), 64)) {
+        imci_binary_scalar2_@kind@_@TYPE@(op, ip1, ip2, n);
+        return 1;
+    }
+    else if (IS_BLOCKABLE_BINARY(sizeof(@type@), 64)) {
+        imci_binary_@kind@_@TYPE@(op, ip1, ip2, n);
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+/**end repeat1**/
+
+#define IMCI_BOOL 0
+
+/**begin repeat1
+ * #kind = equal, not_equal, less, less_equal, greater, greater_equal,
+ *         logical_and, logical_or#
+ * #simd = 1, 1, 1, 1, 1, 1, 0, 0#
+ */
+
+#if @vector@ && @simd@ && defined MPY_HAVE_IMCI_INTRINSICS && IMCI_BOOL
+
+/* prototypes */
+static void
+imci_binary_@kind@_@TYPE@(npy_bool * op, @type@ * ip1, @type@ * ip2,
+                          npy_intp n);
+static void
+imci_binary_scalar1_@kind@_@TYPE@(npy_bool * op, @type@ * ip1, @type@ * ip2,
+                                  npy_intp n);
+static void
+imci_binary_scalar2_@kind@_@TYPE@(npy_bool * op, @type@ * ip1, @type@ * ip2,
+                                  npy_intp n);
+
+#endif
+
+static NPY_INLINE int
+run_binary_simd_@kind@_@TYPE@(char **args, npy_intp *dimensions, npy_intp *steps)
+{
+#if @vector@ && @simd@ && defined MPY_HAVE_IMCI_INTRINSICS && IMCI_BOOL
+    @type@ * ip1 = (@type@ *)args[0];
+    @type@ * ip2 = (@type@ *)args[1];
+    npy_bool * op = (npy_bool *)args[2];
+    npy_intp n = dimensions[0];
+    /* argument one scalar */
+    if (IS_BLOCKABLE_BINARY_SCALAR1_BOOL(sizeof(@type@), 64)) {
+        imci_binary_scalar1_@kind@_@TYPE@(op, ip1, ip2, n);
+        return 1;
+    }
+    /* argument two scalar */
+    else if (IS_BLOCKABLE_BINARY_SCALAR2_BOOL(sizeof(@type@), 64)) {
+        imci_binary_scalar2_@kind@_@TYPE@(op, ip1, ip2, n);
+        return 1;
+    }
+    else if (IS_BLOCKABLE_BINARY_BOOL(sizeof(@type@), 64)) {
+        imci_binary_@kind@_@TYPE@(op, ip1, ip2, n);
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+/**end repeat1**/
+
+/**begin repeat1
+ * #kind = isnan, isfinite, isinf, signbit#
+ */
+
+#if @vector@ && defined MPY_HAVE_IMCI_INTRINSICS && IMCI_BOOL
+
+static void
+imci_@kind@_@TYPE@(npy_bool * op, @type@ * ip1, npy_intp n);
+
+#endif
+
+static NPY_INLINE int
+run_@kind@_simd_@TYPE@(char **args, npy_intp *dimensions, npy_intp *steps)
+{
+#if @vector@ && defined MPY_HAVE_IMCI_INTRINSICS && IMCI_BOOL
+    if (steps[0] == sizeof(@type@) && steps[1] == 1 &&
+        mpy_is_aligned(args[0], sizeof(@type@))) {
+        imci_@kind@_@TYPE@((npy_bool*)args[1], (@type@*)args[0], dimensions[0]);
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+/**end repeat1**/
+
+#undef IMCI_BOOL
+
+/**end repeat**/
+
+/*
+ *****************************************************************************
+ **                           BOOL DISPATCHERS
+ *****************************************************************************
+ */
+
+/* Disable bool simd */
+#define IMCI_BOOL 0
+
+/**begin repeat
+ * # kind = logical_or, logical_and#
+ */
+
+#if defined MPY_HAVE_IMCI_INTRINSICS && IMCI_BOOL
+static void
+imci_binary_@kind@_BOOL(npy_bool * op, npy_bool * ip1, npy_bool * ip2,
+                        npy_intp n);
+
+static void
+imci_reduce_@kind@_BOOL(npy_bool * op, npy_bool * ip, npy_intp n);
+#endif
+
+static NPY_INLINE int
+run_binary_simd_@kind@_BOOL(char **args, npy_intp *dimensions, npy_intp *steps)
+{
+#if defined MPY_HAVE_IMCI_INTRINSICS && IMCI_BOOL
+    if (sizeof(npy_bool) == 1 && IS_BLOCKABLE_BINARY(sizeof(npy_bool), 64)) {
+        imci_binary_@kind@_BOOL((npy_bool*)args[2], (npy_bool*)args[0],
+                               (npy_bool*)args[1], dimensions[0]);
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+
+static NPY_INLINE int
+run_reduce_simd_@kind@_BOOL(char **args, npy_intp *dimensions, npy_intp *steps)
+{
+#if defined MPY_HAVE_IMCI_INTRINSICS && IMCI_BOOL
+    if (sizeof(npy_bool) == 1 && IS_BLOCKABLE_REDUCE(sizeof(npy_bool), 64)) {
+        imci_reduce_@kind@_BOOL((npy_bool*)args[0], (npy_bool*)args[1],
+                                dimensions[0]);
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+/**end repeat**/
+
+/**begin repeat
+ * # kind = absolute, logical_not#
+ */
+
+#if defined MPY_HAVE_IMCI_INTRINSICS && IMCI_BOOL
+static void
+imci_@kind@_BOOL(npy_bool *, npy_bool *, const npy_intp n);
+#endif
+
+static NPY_INLINE int
+run_unary_simd_@kind@_BOOL(char **args, npy_intp *dimensions, npy_intp *steps)
+{
+#if defined MPY_HAVE_IMCI_INTRINSICS && IMCI_BOOL
+    if (sizeof(npy_bool) == 1 && IS_BLOCKABLE_UNARY(sizeof(npy_bool), 64)) {
+        imci_@kind@_BOOL((npy_bool*)args[1], (npy_bool*)args[0], dimensions[0]);
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+/**end repeat**/
+
+#undef ENABLE_BOOL_INTRIN
+
+
+/*
+ * Vectorized operations
+ */
+/*
+ *****************************************************************************
+ **                           FLOAT LOOPS
+ *****************************************************************************
+ */
+
+#ifdef MPY_HAVE_IMCI_INTRINSICS
+
+/**begin repeat
+* horizontal reductions on a vector
+* # VOP = min, max#
+*/
+
+static NPY_INLINE npy_float imci_horizontal_@VOP@___m512(__m512 v)
+{
+    return _mm512_reduce_g@VOP@_ps(v);
+}
+
+static NPY_INLINE npy_double imci_horizontal_@VOP@___m512d(__m512d v)
+{
+    return _mm512_reduce_g@VOP@_pd(v);
+}
+
+/**end repeat**/
+
+#define my_gmax(a, b) (((a) >= (b) || isnan(b)) ? (a) : (b))
+#define my_gmin(a, b) (((a) < (b) || isnan(b)) ? (a) : (b))
+#define my_add(a, b) ((a) + (b))
+#define my_sub(a, b) ((a) - (b))
+#define my_mul(a, b) ((a) * (b))
+#define my_div(a, b) ((a) / (b))
+
+
+/**begin repeat
+ *  #type = npy_float, npy_double#
+ *  #TYPE = FLOAT, DOUBLE#
+ *  #scalarf = sqrtf, sqrt#
+ *  #c = f, #
+ *  #vtype = __m512, __m512d#
+ *  #mtype = __mmask16, __mmask8#
+ *  #vpre = _mm512, _mm512#
+ *  #vsuf = ps, pd#
+ *  #vsufs = ss, sd#
+ *  #nan = MPY_NANF, MPY_NAN#
+ *  #double = 0, 1#
+ *  #cast = _mm512_castps_si512, _mm512_castpd_si512#
+ *  #vesize = 16, 8#
+ *  #visuf = epi32, epi64#
+ */
+
+
+/**begin repeat1
+ * Arithmetic
+ * # kind = add, subtract, multiply, divide, maximum, minimum#
+ * # OP = +, -, *, /, >=, <#
+ * # VOP = add, sub, mul, div, gmax, gmin#
+ * # scalarop = my_add, my_sub, my_mul, my_div, my_gmax, my_gmin#
+ */
+
+static void
+imci_binary_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2, npy_intp n)
+{
+#ifdef __MIC__
+    LOOP_BLOCK_ALIGN_VAR(op, @type@, 64)
+        op[i] = @scalarop@(ip1[i], ip2[i]);
+    /* lots of specializations, to squeeze out max performance */
+    if (mpy_is_aligned(&ip1[i], 64) && mpy_is_aligned(&ip2[i], 64)) {
+        if (ip1 == ip2) {
+            LOOP_BLOCKED(@type@, 64) {
+                @vtype@ a = @vpre@_load_@vsuf@(&ip1[i]);
+                @vtype@ c = @vpre@_@VOP@_@vsuf@(a, a);
+                @vpre@_store_@vsuf@(&op[i], c);
+            }
+        }
+        else {
+            LOOP_BLOCKED(@type@, 64) {
+                @vtype@ a = @vpre@_load_@vsuf@(&ip1[i]);
+                @vtype@ b = @vpre@_load_@vsuf@(&ip2[i]);
+                @vtype@ c = @vpre@_@VOP@_@vsuf@(a, b);
+                @vpre@_store_@vsuf@(&op[i], c);
+            }
+        }
+    }
+    else if (mpy_is_aligned(&ip1[i], 64)) {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ a = @vpre@_load_@vsuf@(&ip1[i]);
+            @vtype@ b;
+            b = @vpre@_loadunpacklo_@vsuf@(b, &ip2[i]);
+            b = @vpre@_loadunpackhi_@vsuf@(b, &ip2[i] + @vesize@);
+            @vtype@ c = @vpre@_@VOP@_@vsuf@(a, b);
+            @vpre@_store_@vsuf@(&op[i], c);
+        }
+    }
+    else if (mpy_is_aligned(&ip2[i], 64)) {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ a;
+            a = @vpre@_loadunpacklo_@vsuf@(a, &ip1[i]);
+            a = @vpre@_loadunpackhi_@vsuf@(a, &ip1[i] + @vesize@);
+            @vtype@ b = @vpre@_load_@vsuf@(&ip2[i]);
+            @vtype@ c = @vpre@_@VOP@_@vsuf@(a, b);
+            @vpre@_store_@vsuf@(&op[i], c);
+        }
+    }
+    else {
+        if (ip1 == ip2) {
+            LOOP_BLOCKED(@type@, 64) {
+                @vtype@ a;
+                a = @vpre@_loadunpacklo_@vsuf@(a, &ip1[i]);
+                a = @vpre@_loadunpackhi_@vsuf@(a, &ip1[i] + @vesize@);
+                @vtype@ c = @vpre@_@VOP@_@vsuf@(a, a);
+                @vpre@_store_@vsuf@(&op[i], c);
+            }
+        }
+        else {
+            LOOP_BLOCKED(@type@, 64) {
+                @vtype@ a, b;
+                a = @vpre@_loadunpacklo_@vsuf@(a, &ip1[i]);
+                a = @vpre@_loadunpackhi_@vsuf@(a, &ip1[i] + @vesize@);
+                b = @vpre@_loadunpacklo_@vsuf@(b, &ip2[i]);
+                b = @vpre@_loadunpackhi_@vsuf@(b, &ip2[i] + @vesize@);
+                @vtype@ c = @vpre@_@VOP@_@vsuf@(a, b);
+                @vpre@_store_@vsuf@(&op[i], c);
+            }
+        }
+    }
+    LOOP_BLOCKED_END {
+        op[i] = @scalarop@(ip1[i], ip2[i]);
+    }
+#endif
+}
+
+
+static void
+imci_binary_scalar1_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2, npy_intp n)
+{
+#ifdef __MIC__
+    const @vtype@ a = @vpre@_set1_@vsuf@(ip1[0]);
+    LOOP_BLOCK_ALIGN_VAR(op, @type@, 64)
+        op[i] = @scalarop@(ip1[0], ip2[i]);
+    if (mpy_is_aligned(&ip2[i], 64)) {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ b = @vpre@_load_@vsuf@(&ip2[i]);
+            @vtype@ c = @vpre@_@VOP@_@vsuf@(a, b);
+            @vpre@_store_@vsuf@(&op[i], c);
+        }
+    }
+    else {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ b;
+            b = @vpre@_loadunpacklo_@vsuf@(b, &ip2[i]);
+            b = @vpre@_loadunpackhi_@vsuf@(b, &ip2[i] + @vesize@);
+            @vtype@ c = @vpre@_@VOP@_@vsuf@(a, b);
+            @vpre@_store_@vsuf@(&op[i], c);
+        }
+    }
+    LOOP_BLOCKED_END {
+        op[i] = @scalarop@(ip1[0], ip2[i]);
+    }
+#endif
+}
+
+
+static void
+imci_binary_scalar2_@kind@_@TYPE@(@type@ * op, @type@ * ip1, @type@ * ip2, npy_intp n)
+{
+#ifdef __MIC__
+    const @vtype@ b = @vpre@_set1_@vsuf@(ip2[0]);
+    LOOP_BLOCK_ALIGN_VAR(op, @type@, 64)
+        op[i] = @scalarop@(ip1[i], ip2[0]);
+    if (mpy_is_aligned(&ip1[i], 64)) {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ a = @vpre@_load_@vsuf@(&ip1[i]);
+            @vtype@ c = @vpre@_@VOP@_@vsuf@(a, b);
+            @vpre@_store_@vsuf@(&op[i], c);
+        }
+    }
+    else {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ a;
+            a = @vpre@_loadunpacklo_@vsuf@(a, &ip1[i]);
+            a = @vpre@_loadunpackhi_@vsuf@(a, &ip1[i] + @vesize@);
+            @vtype@ c = @vpre@_@VOP@_@vsuf@(a, b);
+            @vpre@_store_@vsuf@(&op[i], c);
+        }
+    }
+    LOOP_BLOCKED_END {
+        op[i] = @scalarop@(ip1[i], ip2[0]);
+    }
+#endif
+}
+
+/**end repeat1**/
+
+/**begin repeat1
+ *
+ * #kind = exp, exp2, expm1, log, log10, logb, log1p,
+ *         sqrt, invsqrt, cbrt, ceil, floor, rint, trunc,
+ *         cos, cosd, cosh, acos, acosh,
+ *         sin, sind, sinh, asin, asinh,
+ *         tan, tand, tanh, atan, atanh, fabs#
+ * #VOP =  exp, exp2, expm1, log, log10, logb, log1p,
+ *         sqrt, invsqrt, cbrt, ceil, floor, rint, trunc,
+ *         cos, cosd, cosh, acos, acosh,
+ *         sin, sind, sinh, asin, asinh,
+ *         tan, tand, tanh, atan, atanh, abs#
+ */
+
+static void
+imci_@kind@_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
+{
+#ifdef __MIC__
+     /* align output to 64 bytes */
+    LOOP_BLOCK_ALIGN_VAR(op, @type@, 64) {
+        op[i] = @kind@@c@(ip[i]);
+    }
+    assert(n < (64 / sizeof(@type@)) || mpy_is_aligned(&op[i], 64));
+    if (mpy_is_aligned(&ip[i], 64)) {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ d = @vpre@_load_@vsuf@(&ip[i]);
+            @vpre@_store_@vsuf@(&op[i], @vpre@_@VOP@_@vsuf@(d));
+        }
+    }
+    else {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ d;
+            d = @vpre@_loadunpacklo_@vsuf@(d, &ip[i]);
+            d = @vpre@_loadunpackhi_@vsuf@(d, &ip[i+@vesize@]);
+            @vpre@_store_@vsuf@(&op[i], @vpre@_@VOP@_@vsuf@(d));
+        }
+    }
+    LOOP_BLOCKED_END {
+        op[i] = @kind@@c@(ip[i]);
+    }
+#endif
+}
+
+/**end repeat1**/
+
+/**begin repeat1
+ * Special function with fast version of float
+ * # func = log2#
+ * # VOP =  log2#
+ * # sVOP = log2ae23#
+ */
+
+static void
+imci_@VOP@_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
+{
+#ifdef __MIC__
+     /* align output to 64 bytes */
+    LOOP_BLOCK_ALIGN_VAR(op, @type@, 64) {
+        op[i] = @func@@c@(ip[i]);
+    }
+    assert(n < (64 / sizeof(@type@)) || mpy_is_aligned(&op[i], 64));
+    if (mpy_is_aligned(&ip[i], 64)) {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ d = @vpre@_load_@vsuf@(&ip[i]);
+#if @double@
+            @vpre@_store_@vsuf@(&op[i], @vpre@_@VOP@_@vsuf@(d));
+#else
+            @vpre@_store_@vsuf@(&op[i], @vpre@_@sVOP@_@vsuf@(d));
+#endif
+        }
+    }
+    else {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ d;
+            d = @vpre@_loadunpacklo_@vsuf@(d, &ip[i]);
+            d = @vpre@_loadunpackhi_@vsuf@(d, &ip[i+@vesize@]);
+#if @double@
+            @vpre@_store_@vsuf@(&op[i], @vpre@_@VOP@_@vsuf@(d));
+#else
+            @vpre@_store_@vsuf@(&op[i], @vpre@_@sVOP@_@vsuf@(d));
+#endif
+        }
+    }
+    LOOP_BLOCKED_END {
+        op[i] = @func@@c@(ip[i]);
+    }
+#endif
+}
+
+/**end repeat1**/
+
+#if !@double@
+static void
+imci_reciprocal_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
+{
+#ifdef __MIC__
+     /* align output to 64 bytes */
+    LOOP_BLOCK_ALIGN_VAR(op, @type@, 64) {
+        op[i] = 1/ip[i];
+    }
+    assert(n < (64 / sizeof(@type@)) || mpy_is_aligned(&op[i], 64));
+    if (mpy_is_aligned(&ip[i], 64)) {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ d = @vpre@_load_@vsuf@(&ip[i]);
+            @vpre@_store_@vsuf@(&op[i], @vpre@_rcp23_@vsuf@(d));
+        }
+    }
+    else {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ d;
+            d = @vpre@_loadunpacklo_@vsuf@(d, &ip[i]);
+            d = @vpre@_loadunpackhi_@vsuf@(d, &ip[i+@vesize@]);
+            @vpre@_store_@vsuf@(&op[i], @vpre@_rcp23_@vsuf@(d));
+        }
+    }
+    LOOP_BLOCKED_END {
+        op[i] = 1/ip[i];
+    }
+#endif
+}
+#endif
+
+
+static NPY_INLINE
+@type@ scalar_abs_@type@(@type@ v)
+{
+    /* add 0 to clear -0.0 */
+    return (v > 0 ? v: -v) + 0;
+}
+
+static NPY_INLINE
+@type@ scalar_neg_@type@(@type@ v)
+{
+    return -v;
+}
+
+static void
+imci_absolute_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
+{
+#ifdef __MIC__
+    /* align output to 64 bytes */
+    LOOP_BLOCK_ALIGN_VAR(op, @type@, 64) {
+        op[i] = scalar_abs_@type@(ip[i]);
+    }
+    assert(n < (64 / sizeof(@type@)) || mpy_is_aligned(&op[i], 64));
+    if (mpy_is_aligned(&ip[i], 64)) {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ a = @vpre@_load_@vsuf@(&ip[i]);
+            @vpre@_store_@vsuf@(&op[i], @vpre@_abs_@vsuf@(a));
+        }
+    }
+    else {
+        LOOP_BLOCKED(@type@, 64) {
+            @vtype@ a;
+            a = @vpre@_loadunpacklo_@vsuf@(a, &ip[i]);
+            a = @vpre@_loadunpackhi_@vsuf@(a, &ip[i+@vesize@]);
+            @vpre@_store_@vsuf@(&op[i], @vpre@_abs_@vsuf@(a));
+        }
+    }
+    LOOP_BLOCKED_END {
+        op[i] = scalar_abs_@type@(ip[i]);
+    }
+#endif
+}
+
+static void
+imci_negative_@TYPE@(@type@ * op, @type@ * ip, const npy_intp n)
+{
+#ifdef __MIC__
+    /*
+     * get 0x7FFFFFFF mask (everything but signbit set)
+     * float & ~mask will remove the sign, float ^ mask flips the sign
+     * this is equivalent to how the compiler implements fabs on amd64
+     */
+    const __m512i mask = @cast@(@vpre@_set1_@vsuf@(-0.@c@));
+
+    /* align output to 64 bytes */
+    LOOP_BLOCK_ALIGN_VAR(op, @type@, 64) {
+        op[i] = scalar_neg_@type@(ip[i]);
+    }
+    assert(n < (64 / sizeof(@type@)) || mpy_is_aligned(&op[i], 64));
+    if (mpy_is_aligned(&ip[i], 64)) {
+        LOOP_BLOCKED(@type@, 64) {
+            __m512i a = @vpre@_load_si512(&ip[i]);
+            @vpre@_store_si512(&op[i], @vpre@_xor_si512(mask, a));
+        }
+    }
+    else {
+        LOOP_BLOCKED(@type@, 64) {
+            __m512i a;
+            a = @vpre@_loadunpacklo_@visuf@(a, &ip[i]);
+            a = @vpre@_loadunpackhi_@visuf@(a, &ip[i+@vesize@]);
+
+            @vpre@_store_si512(&op[i], @vpre@_xor_@visuf@(mask, a));
+        }
+    }
+    LOOP_BLOCKED_END {
+        op[i] = scalar_neg_@type@(ip[i]);
+    }
+#endif
+}
+
+
+/**begin repeat1
+ * #kind = maximum, minimum#
+ * #VOP = gmax, gmin#
+ * #OP = >=, <=#
+ * #scalarop = my_gmax, my_gmin#
+ **/
+/* arguments swapped as unary reduce has the swapped compared to unary */
+static void
+imci_@kind@_@TYPE@(@type@ * ip, @type@ * op, const npy_intp n)
+{
+#ifdef __MIC__
+    const size_t stride = 64 / sizeof(@type@);
+    LOOP_BLOCK_ALIGN_VAR(ip, @type@, 64) {
+        *op = @scalarop@(*op, ip[i]);
+    }
+    assert(n < (stride) || mpy_is_aligned(&ip[i], 64));
+    if (i + 3 * stride <= n) {
+        /* load the first elements */
+        @vtype@ c1 = @vpre@_load_@vsuf@((@type@*)&ip[i]);
+        @vtype@ c2 = @vpre@_load_@vsuf@((@type@*)&ip[i + stride]);
+        i += 2 * stride;
+
+        /* minps/minpd will set invalid flag if nan is encountered */
+        mpy_clear_floatstatus();
+        LOOP_BLOCKED(@type@, 128) {
+            @vtype@ v1 = @vpre@_load_@vsuf@((@type@*)&ip[i]);
+            @vtype@ v2 = @vpre@_load_@vsuf@((@type@*)&ip[i + stride]);
+            c1 = @vpre@_@VOP@_@vsuf@(c1, v1);
+            c2 = @vpre@_@VOP@_@vsuf@(c2, v2);
+        }
+        c1 = @vpre@_@VOP@_@vsuf@(c1, c2);
+
+        if (mpy_get_floatstatus() & NPY_FPE_INVALID) {
+            *op = @nan@;
+        }
+        else {
+            @type@ tmp = @vpre@_reduce_@VOP@_@vsuf@(c1);
+            *op  = @scalarop@(*op, tmp);
+        }
+    }
+    LOOP_BLOCKED_END {
+        *op  = @scalarop@(*op, ip[i]);
+    }
+#endif
+}
+/**end repeat1**/
+
+/**end repeat**/
+
+#undef my_gmax
+#undef my_gmin
+#undef my_add
+#undef my_sub
+#undef my_mul
+#undef my_div
+
+/*
+ *****************************************************************************
+ **                           BOOL LOOPS
+ *****************************************************************************
+ */
+
+/* TODO: disable bool simd, instead use compiler vectorization */
+
+/**end repeat**/
+
+#endif /* MPY_HAVE_IMCI_INTRINSICS */
+
+#pragma omp end declare target
+
+#endif

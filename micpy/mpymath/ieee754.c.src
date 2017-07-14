@@ -1,0 +1,442 @@
+/* -*- c -*- */
+/*
+ * vim:syntax=c
+ *
+ * Low-level routines related to IEEE-754 format
+ */
+#include "npy_math_private.h"
+#include "mpy_math.h"
+
+#pragma omp declare target
+
+/*
+ The below code is provided for compilers which do not yet provide C11 compatibility (gcc 4.5 and older)
+ */
+#ifndef LDBL_TRUE_MIN
+#define LDBL_TRUE_MIN __LDBL_DENORM_MIN__
+#endif
+
+/*
+ * FIXME: There is a lot of redundancy between _next* and mpy_nextafter*.
+ * refactor this at some point
+ *
+ * p >= 0, returnx x + nulp
+ * p < 0, returnx x - nulp
+ */
+static double _next(double x, int p)
+{
+    volatile double t;
+    npy_int32 hx, hy, ix;
+    npy_uint32 lx;
+
+    EXTRACT_WORDS(hx, lx, x);
+    ix = hx & 0x7fffffff;       /* |x| */
+
+    if (((ix >= 0x7ff00000) && ((ix - 0x7ff00000) | lx) != 0))        /* x is nan */
+        return x;
+    if ((ix | lx) == 0) {       /* x == 0 */
+        if (p >= 0) {
+            INSERT_WORDS(x, 0x0, 1);    /* return +minsubnormal */
+        } else {
+            INSERT_WORDS(x, 0x80000000, 1);    /* return -minsubnormal */
+        }
+        t = x * x;
+        if (t == x)
+            return t;
+        else
+            return x;           /* raise underflow flag */
+    }
+    if (p < 0) {     /* x -= ulp */
+        if (lx == 0)
+            hx -= 1;
+        lx -= 1;
+    } else {         /* x += ulp */
+        lx += 1;
+        if (lx == 0)
+            hx += 1;
+    }
+    hy = hx & 0x7ff00000;
+    if (hy >= 0x7ff00000)
+        return x + x;           /* overflow  */
+    if (hy < 0x00100000) {      /* underflow */
+        t = x * x;
+        if (t != x) {           /* raise underflow flag */
+            INSERT_WORDS(x, hx, lx);
+            return x;
+        }
+    }
+    INSERT_WORDS(x, hx, lx);
+    return x;
+}
+
+static float _nextf(float x, int p)
+{
+    volatile float t;
+    npy_int32 hx, hy, ix;
+
+    GET_FLOAT_WORD(hx, x);
+    ix = hx & 0x7fffffff;       /* |x| */
+
+    if ((ix > 0x7f800000))      /* x is nan */
+        return x;
+    if (ix == 0) {              /* x == 0 */
+        if (p >= 0) {
+            SET_FLOAT_WORD(x, 0x0 | 1); /* return +minsubnormal */
+        } else {
+            SET_FLOAT_WORD(x, 0x80000000 | 1); /* return -minsubnormal */
+        }
+        t = x * x;
+        if (t == x)
+            return t;
+        else
+            return x;           /* raise underflow flag */
+    }
+    if (p < 0) {            /* x -= ulp */
+        hx -= 1;
+    } else {                /* x += ulp */
+        hx += 1;
+    }
+    hy = hx & 0x7f800000;
+    if (hy >= 0x7f800000)
+        return x + x;           /* overflow  */
+    if (hy < 0x00800000) {      /* underflow */
+        t = x * x;
+        if (t != x) {           /* raise underflow flag */
+            SET_FLOAT_WORD(x, hx);
+            return x;
+        }
+    }
+    SET_FLOAT_WORD(x, hx);
+    return x;
+}
+
+static npy_longdouble _nextl(npy_longdouble x, int p)
+{
+    volatile npy_longdouble t;
+    union IEEEl2bitsrep ux;
+
+    ux.e = x;
+
+    if ((GET_LDOUBLE_EXP(ux) == 0x7fff &&
+         ((GET_LDOUBLE_MANH(ux) & ~LDBL_NBIT) | GET_LDOUBLE_MANL(ux)) != 0)) {
+        return ux.e;        /* x is nan */
+    }
+    if (ux.e == 0.0) {
+        SET_LDOUBLE_MANH(ux, 0);              /* return +-minsubnormal */
+        SET_LDOUBLE_MANL(ux, 1);
+        if (p >= 0) {
+            SET_LDOUBLE_SIGN(ux, 0);
+        } else {
+            SET_LDOUBLE_SIGN(ux, 1);
+        }
+        t = ux.e * ux.e;
+        if (t == ux.e) {
+            return t;
+        } else {
+            return ux.e;           /* raise underflow flag */
+        }
+    }
+    if (p < 0) {      /* x -= ulp */
+        if (GET_LDOUBLE_MANL(ux) == 0) {
+            if ((GET_LDOUBLE_MANH(ux) & ~LDBL_NBIT) == 0) {
+                SET_LDOUBLE_EXP(ux, GET_LDOUBLE_EXP(ux) - 1);
+            }
+            SET_LDOUBLE_MANH(ux,
+                             (GET_LDOUBLE_MANH(ux) - 1) |
+                             (GET_LDOUBLE_MANH(ux) & LDBL_NBIT));
+        }
+        SET_LDOUBLE_MANL(ux, GET_LDOUBLE_MANL(ux) - 1);
+    } else {                    /* x += ulp */
+        SET_LDOUBLE_MANL(ux, GET_LDOUBLE_MANL(ux) + 1);
+        if (GET_LDOUBLE_MANL(ux) == 0) {
+            SET_LDOUBLE_MANH(ux,
+                             (GET_LDOUBLE_MANH(ux) + 1) |
+                             (GET_LDOUBLE_MANH(ux) & LDBL_NBIT));
+            if ((GET_LDOUBLE_MANH(ux) & ~LDBL_NBIT) == 0) {
+                SET_LDOUBLE_EXP(ux, GET_LDOUBLE_EXP(ux) + 1);
+            }
+        }
+    }
+    if (GET_LDOUBLE_EXP(ux) == 0x7fff) {
+        return ux.e + ux.e;           /* overflow  */
+    }
+    if (GET_LDOUBLE_EXP(ux) == 0) {            /* underflow */
+        if (LDBL_NBIT) {
+            SET_LDOUBLE_MANH(ux, GET_LDOUBLE_MANH(ux) & ~LDBL_NBIT);
+        }
+        t = ux.e * ux.e;
+        if (t != ux.e) {           /* raise underflow flag */
+            return ux.e;
+        }
+    }
+
+    return ux.e;
+}
+
+/**begin repeat
+ * #suff = f,,l#
+ * #SUFF = F,,L#
+ * #type = npy_float, npy_double, npy_longdouble#
+ */
+@type@ mpy_spacing@suff@(@type@ x)
+{
+    /* XXX: npy isnan/isinf may be optimized by bit twiddling */
+    if (isinf(x)) {
+        return MPY_NAN@SUFF@;
+    }
+
+    return _next@suff@(x, 1) - x;
+}
+/**end repeat**/
+
+/*
+ * Functions to set the floating point status word.
+ * keep in sync with NO_FLOATING_POINT_SUPPORT in ufuncobject.h
+ */
+
+#if (defined(__unix__) || defined(unix)) && !defined(USG)
+#include <sys/param.h>
+#endif
+
+/* Solaris --------------------------------------------------------*/
+/* --------ignoring SunOS ieee_flags approach, someone else can
+**         deal with that! */
+#if defined(sun) || defined(__BSD__) || defined(__OpenBSD__) || \
+    (defined(__FreeBSD__) && (__FreeBSD_version < 502114)) || \
+    defined(__NetBSD__)
+#include <ieeefp.h>
+
+int mpy_get_floatstatus(void)
+{
+    int fpstatus = fpgetsticky();
+    return ((FP_X_DZ  & fpstatus) ? NPY_FPE_DIVIDEBYZERO : 0) |
+           ((FP_X_OFL & fpstatus) ? NPY_FPE_OVERFLOW : 0) |
+           ((FP_X_UFL & fpstatus) ? NPY_FPE_UNDERFLOW : 0) |
+           ((FP_X_INV & fpstatus) ? NPY_FPE_INVALID : 0);
+}
+
+int mpy_clear_floatstatus(void)
+{
+    int fpstatus = mpy_get_floatstatus();
+    fpsetsticky(0);
+
+    return fpstatus;
+}
+
+void mpy_set_floatstatus_divbyzero(void)
+{
+    fpsetsticky(FP_X_DZ);
+}
+
+void mpy_set_floatstatus_overflow(void)
+{
+    fpsetsticky(FP_X_OFL);
+}
+
+void mpy_set_floatstatus_underflow(void)
+{
+    fpsetsticky(FP_X_UFL);
+}
+
+void mpy_set_floatstatus_invalid(void)
+{
+    fpsetsticky(FP_X_INV);
+}
+
+
+#elif defined(__GLIBC__) || defined(__APPLE__) || \
+      defined(__CYGWIN__) || defined(__MINGW32__) || \
+      (defined(__FreeBSD__) && (__FreeBSD_version >= 502114))
+#  include <fenv.h>
+
+int mpy_get_floatstatus(void)
+{
+    int fpstatus = fetestexcept(FE_DIVBYZERO | FE_OVERFLOW |
+                                FE_UNDERFLOW | FE_INVALID);
+
+    return ((FE_DIVBYZERO  & fpstatus) ? NPY_FPE_DIVIDEBYZERO : 0) |
+           ((FE_OVERFLOW   & fpstatus) ? NPY_FPE_OVERFLOW : 0) |
+           ((FE_UNDERFLOW  & fpstatus) ? NPY_FPE_UNDERFLOW : 0) |
+           ((FE_INVALID    & fpstatus) ? NPY_FPE_INVALID : 0);
+}
+
+int mpy_clear_floatstatus(void)
+{
+    /* testing float status is 50-100 times faster than clearing on x86 */
+    int fpstatus = mpy_get_floatstatus();
+    if (fpstatus != 0) {
+        feclearexcept(FE_DIVBYZERO | FE_OVERFLOW |
+                      FE_UNDERFLOW | FE_INVALID);
+    }
+
+    return fpstatus;
+}
+
+
+void mpy_set_floatstatus_divbyzero(void)
+{
+    feraiseexcept(FE_DIVBYZERO);
+}
+
+void mpy_set_floatstatus_overflow(void)
+{
+    feraiseexcept(FE_OVERFLOW);
+}
+
+void mpy_set_floatstatus_underflow(void)
+{
+    feraiseexcept(FE_UNDERFLOW);
+}
+
+void mpy_set_floatstatus_invalid(void)
+{
+    feraiseexcept(FE_INVALID);
+}
+
+#elif defined(_AIX)
+#include <float.h>
+#include <fpxcp.h>
+
+int mpy_get_floatstatus(void)
+{
+    int fpstatus = fp_read_flag();
+    return ((FP_DIV_BY_ZERO & fpstatus) ? NPY_FPE_DIVIDEBYZERO : 0) |
+           ((FP_OVERFLOW & fpstatus) ? NPY_FPE_OVERFLOW : 0) |
+           ((FP_UNDERFLOW & fpstatus) ? NPY_FPE_UNDERFLOW : 0) |
+           ((FP_INVALID & fpstatus) ? NPY_FPE_INVALID : 0);
+}
+
+int mpy_clear_floatstatus(void)
+{
+    int fpstatus = mpy_get_floatstatus();
+    fp_swap_flag(0);
+
+    return fpstatus;
+}
+
+void mpy_set_floatstatus_divbyzero(void)
+{
+    fp_raise_xcp(FP_DIV_BY_ZERO);
+}
+
+void mpy_set_floatstatus_overflow(void)
+{
+    fp_raise_xcp(FP_OVERFLOW);
+}
+
+void mpy_set_floatstatus_underflow(void)
+{
+    fp_raise_xcp(FP_UNDERFLOW);
+}
+
+void mpy_set_floatstatus_invalid(void)
+{
+    fp_raise_xcp(FP_INVALID);
+}
+
+#else
+
+/* MS Windows -----------------------------------------------------*/
+#if defined(_MSC_VER)
+
+#include <float.h>
+
+
+int mpy_get_floatstatus(void)
+{
+#if defined(_WIN64)
+    int fpstatus = _statusfp();
+#else
+    /* windows enables sse on 32 bit, so check both flags */
+    int fpstatus, fpstatus2;
+    _statusfp2(&fpstatus, &fpstatus2);
+    fpstatus |= fpstatus2;
+#endif
+    return ((SW_ZERODIVIDE & fpstatus) ? NPY_FPE_DIVIDEBYZERO : 0) |
+           ((SW_OVERFLOW & fpstatus) ? NPY_FPE_OVERFLOW : 0) |
+           ((SW_UNDERFLOW & fpstatus) ? NPY_FPE_UNDERFLOW : 0) |
+           ((SW_INVALID & fpstatus) ? NPY_FPE_INVALID : 0);
+}
+
+int mpy_clear_floatstatus(void)
+{
+    int fpstatus = mpy_get_floatstatus();
+    _clearfp();
+
+    return fpstatus;
+}
+
+/*  OSF/Alpha (Tru64)  ---------------------------------------------*/
+#elif defined(__osf__) && defined(__alpha)
+
+#include <machine/fpu.h>
+
+int mpy_get_floatstatus(void)
+{
+    unsigned long fpstatus = ieee_get_fp_control();
+    return  ((IEEE_STATUS_DZE & fpstatus) ? NPY_FPE_DIVIDEBYZERO : 0) |
+            ((IEEE_STATUS_OVF & fpstatus) ? NPY_FPE_OVERFLOW : 0) |
+            ((IEEE_STATUS_UNF & fpstatus) ? NPY_FPE_UNDERFLOW : 0) |
+            ((IEEE_STATUS_INV & fpstatus) ? NPY_FPE_INVALID : 0);
+}
+
+int mpy_clear_floatstatus(void)
+{
+    long fpstatus = mpy_get_floatstatus();
+    /* clear status bits as well as disable exception mode if on */
+    ieee_set_fp_control(0);
+
+    return fpstatus;
+}
+
+#else
+
+int mpy_get_floatstatus(void)
+{
+    return 0;
+}
+
+int mpy_clear_floatstatus(void)
+{
+    return 0;
+}
+
+#endif
+
+/*
+ * By using a volatile floating point value,
+ * the compiler is forced to actually do the requested
+ * operations because of potential concurrency.
+ *
+ * We shouldn't write multiple values to a single
+ * global here, because that would cause
+ * a race condition.
+ */
+static volatile double _mpy_floatstatus_x,
+    _mpy_floatstatus_zero = 0.0, _mpy_floatstatus_big = 1e300,
+    _mpy_floatstatus_small = 1e-300, _mpy_floatstatus_inf;
+
+void mpy_set_floatstatus_divbyzero(void)
+{
+    _mpy_floatstatus_x = 1.0 / _mpy_floatstatus_zero;
+}
+
+void mpy_set_floatstatus_overflow(void)
+{
+    _mpy_floatstatus_x = _mpy_floatstatus_big * 1e300;
+}
+
+void mpy_set_floatstatus_underflow(void)
+{
+    _mpy_floatstatus_x = _mpy_floatstatus_small * 1e-300;
+}
+
+void mpy_set_floatstatus_invalid(void)
+{
+    _mpy_floatstatus_inf = NPY_INFINITY;
+    _mpy_floatstatus_x = _mpy_floatstatus_inf - NPY_INFINITY;
+}
+
+#endif
+
+#pragma omp end declare target

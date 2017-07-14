@@ -1,16 +1,19 @@
-from pymic import OffloadStream as stream
+from __future__ import division, absolute_import, print_function
 
-from . import device
-from .ndarray import ndarray
-from .util import get_array_module
-from .core import *
+try:
+    __MICPY_SETUP__
+except NameError:
+    __MICPY_SETUP__ = False
 
-from .math.numeric import vdot, dot, matmul_transA, matmul_transB
-from .math.numeric import sum, argmax, argmin
-
-from .statistics import random
-
-from .dnn import grad_decrease
-from .dnn import relu, relu_grad
-from .dnn import sigmoid, sigmoid_grad
-from .dnn import tanh, tanh_grad
+if __MICPY_SETUP__:
+    import sys
+    sys.stderr.write('Running from micpy source directory.\n')
+else:
+    from .multiarray import *
+    from .umath import *
+    from .numeric import (asarray, rollaxis, moveaxis, argmax, argmin)
+    from numpy import (int, int_, int8, int16, int32, int64,
+                       uint, uint8, uint16, uint32, uint64,
+                       float, float_, float16, float32, float64,
+                       complex, complex_, complex64, complex128,
+                       byte, short, long, longlong, intp, double, longdouble)
