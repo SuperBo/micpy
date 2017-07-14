@@ -48,6 +48,10 @@ NPY_NO_EXPORT PyObject *
 PyMicArray_FromAny(int device, PyObject *op, PyArray_Descr *newtype, int min_depth,
                     int max_depth, int flags, PyObject *context);
 
+#define PyMicArray_ContiguousFromAny(dev, op, type, min_depth, max_depth) \
+        PyMicArray_FromAny(dev, op, PyArray_DescrFromType(type), min_depth, \
+                              max_depth, NPY_ARRAY_DEFAULT, NULL)
+
 NPY_NO_EXPORT PyObject *
 PyMicArray_FromArray(PyArrayObject *arr, PyArray_Descr *newtype, int device, int flags);
 

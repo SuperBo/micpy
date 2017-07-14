@@ -142,11 +142,10 @@ static void
     /*printf("fn @prefix@_@oper@_size@elsize@\n");*/
     #pragma omp target device(device) map(to: N, _dst, dst_stride, _src, src_stride)
     {
-        while (N--) {
         char *dst = (char *) _dst;
         char *src = (char *) _src;
+        while (N--) {
 #if @is_aligned@
-
         /* aligned copy and swap */
 #  if @elsize@ != 16
             (*((@type@ *)dst)) = @swap@@elsize@(*((@type@ *)src));
@@ -1019,8 +1018,6 @@ PyMicArray_GetStridedNumericCastFn(int aligned, npy_intp src_stride,
 
 
 /****************** PRIMITIVE FLAT TO/FROM NDIM FUNCTIONS ******************/
-/* TODO: implement when need */
-
 /* See documentation of arguments in lowlevel_strided_loops.h */
 NPY_NO_EXPORT npy_intp
 PyMicArray_TransferNDimToStrided(npy_intp ndim,
