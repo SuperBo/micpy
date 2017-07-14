@@ -9,7 +9,7 @@
  */
 
 typedef int (PyMicArray_CompareFunc)(const void *, const void *, void *);
-typedef int (PyMicArray_ArgFunc)(void*, npy_intp, npy_intp*, void *);
+typedef int (PyMicArray_ArgFunc)(void*, npy_intp, npy_intp*, int);
 
 typedef void (PyMicArray_DotFunc)(void *, npy_intp, void *, npy_intp, void *,
                                   npy_intp, int);

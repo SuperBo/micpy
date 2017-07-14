@@ -1292,57 +1292,12 @@ HALF_compare (npy_half *pa, npy_half *pb, PyArrayObject *NPY_UNUSED(ap))
 /************************** MAYBE USE CBLAS *********************************/
 
 
-/**begin repeat
- *
- * #name = FLOAT, DOUBLE#
- * #type = npy_float, npy_double#
- * #prefix = s, d#
- */
-NPY_NO_EXPORT int
-@name@_argmax(@type@ *ip, npy_intp n, npy_intp *max_ind, int device)
-{
-    npy_intp mymax_ind, cmax_ind;
-
-    #pragma omp target device(device) map(to: ip, n) map(from: mymax_ind)
-    {
-        @type@ *arr = ip;
-        int chunk = n < MPY_CBLAS_CHUNK ? n : MPY_CBLAS_CHUNK;
-
-        mymax_ind = cblas_i@prefix@amax(chunk, ip, 1);
-
-        ip += chunk;
-        n -= chunk;
-        npy_intp pre_chunk = 0;
-
-        while (n > 0) {
-            pre_chunk += chunk;
-            chunk = n < MPY_CBLAS_CHUNK ? n : MPY_CBLAS_CHUNK;
-
-            cmax_ind = pre_chunk + cblas_i@prefix@amax(chunk, ip, 1);
-
-            if (arr[cmax_ind] > arr[mymax_ind]) {
-                mymax_ind = cmax_ind;
-            }
-            /* use char strides here */
-            ip += chunk;
-            n -= chunk;
-        }
-    }
-    *max_ind = mymax_ind;
-    return 0;
-}
-/**end repeat**/
-
-
 #define _LESS_THAN_OR_EQUAL(a,b) ((a) <= (b))
 
 static int
-BOOL_argmax(npy_bool *ip, npy_intp n, npy_intp *max_ind,
-            int device)
+BOOL_argmax(npy_bool *ip, npy_intp n, npy_intp *max_ind, int device)
 
 {
-    npy_intp i = 0;
-    int result;
     /* memcmp like logical_and on i386 is maybe slower for small arrays */
     //TODO: implement IMCI instrinsic
 /*#ifdef NPY_HAVE_SSE2_INTRINSICS
@@ -1358,21 +1313,21 @@ BOOL_argmax(npy_bool *ip, npy_intp n, npy_intp *max_ind,
     }
 #endif*/
 
-    #pragma omp target device(device) map(to: ip, n) map(from: result)
+    #pragma omp target device(device) map(to: ip, n, max_ind)
     {
+        npy_intp i = 0;
         int found = 0;
-        for (; i < n; i++) {
+        for (i = 0; i < n; i++) {
             if (ip[i]) {
-                result = i;
+                *max_ind = i;
                 found = 1;
                 break;
             }
         }
         if (!found)
-            result = 0;
+            *max_ind = 0;
     }
 
-    *max_ind = result;
     return 0;
 }
 
@@ -1380,74 +1335,72 @@ BOOL_argmax(npy_bool *ip, npy_intp n, npy_intp *max_ind,
  *
  * #fname = BYTE, UBYTE, SHORT, USHORT, INT, UINT,
  *          LONG, ULONG, LONGLONG, ULONGLONG,
- *          HALF, LONGDOUBLE,
+ *          HALF, FLOAT, DOUBLE, LONGDOUBLE,
  *          CFLOAT, CDOUBLE, CLONGDOUBLE,
  *          DATETIME, TIMEDELTA#
  * #type = npy_byte, npy_ubyte, npy_short, npy_ushort, npy_int, npy_uint,
  *         npy_long, npy_ulong, npy_longlong, npy_ulonglong,
- *         npy_half, npy_longdouble,
+ *         npy_half, npy_float, npy_double, npy_longdouble,
  *         npy_float, npy_double, npy_longdouble,
  *         npy_datetime, npy_timedelta#
- * #isfloat = 0*10, 1*5, 0*2#
- * #isnan = nop*10, mpy_half_isnan, isnan*4, nop*2#
- * #le = _LESS_THAN_OR_EQUAL*10, mpy_half_le, _LESS_THAN_OR_EQUAL*6#
- * #iscomplex = 0*12, 1*3, 0*2#
- * #incr = ip++*12, ip+=2*3, ip++*2#
+ * #isfloat = 0*10, 1*7, 0*2#
+ * #isnan = nop*10, mpy_half_isnan, isnan*6, nop*2#
+ * #le = _LESS_THAN_OR_EQUAL*10, mpy_half_le, _LESS_THAN_OR_EQUAL*8#
+ * #iscomplex = 0*14, 1*3, 0*2#
+ * #incr = ip++*14, ip+=2*3, ip++*2#
  */
 static int
-@fname@_argmax(@type@ *ip, npy_intp n, npy_intp *max_ind,
-        PyArrayObject *NPY_UNUSED(aip))
+@fname@_argmax(@type@ *ip, npy_intp n, npy_intp *max_ind, int device)
 {
-    npy_intp i;
-    @type@ mp = *ip;
+    #pragma omp target device(device) map(to: ip, n, max_ind)
+    {
+        npy_intp i;
+        @type@ mp = *ip;
 #if @iscomplex@
-    @type@ mp_im = ip[1];
+        @type@ mp_im = ip[1];
 #endif
 
-    *max_ind = 0;
+        *max_ind = 0;
 
 #if @isfloat@
-    if (@isnan@(mp)) {
-        /* nan encountered; it's maximal */
-        return 0;
-    }
+        if (!@isnan@(mp))
+            /* nan encountered; it's maximal */
 #endif
 #if @iscomplex@
-    if (@isnan@(mp_im)) {
-        /* nan encountered; it's maximal */
-        return 0;
-    }
+        if (!@isnan@(mp_im))
+            /* nan encountered; it's maximal */
 #endif
 
-    for (i = 1; i < n; i++) {
-        @incr@;
-        /*
-         * Propagate nans, similarly as max() and min()
-         */
+        for (i = 1; i < n; i++) {
+            @incr@;
+            /*
+            * Propagate nans, similarly as max() and min()
+            */
 #if @iscomplex@
-        /* Lexical order for complex numbers */
-        if ((ip[0] > mp) || ((ip[0] == mp) && (ip[1] > mp_im))
-                || @isnan@(ip[0]) || @isnan@(ip[1])) {
-            mp = ip[0];
-            mp_im = ip[1];
-            *max_ind = i;
-            if (@isnan@(mp) || @isnan@(mp_im)) {
-                /* nan encountered, it's maximal */
-                break;
+            /* Lexical order for complex numbers */
+            if ((ip[0] > mp) || ((ip[0] == mp) && (ip[1] > mp_im))
+                    || @isnan@(ip[0]) || @isnan@(ip[1])) {
+                mp = ip[0];
+                mp_im = ip[1];
+                *max_ind = i;
+                if (@isnan@(mp) || @isnan@(mp_im)) {
+                    /* nan encountered, it's maximal */
+                    break;
+                }
             }
-        }
 #else
-        if (!@le@(*ip, mp)) {  /* negated, for correct nan handling */
-            mp = *ip;
-            *max_ind = i;
+            if (!@le@(*ip, mp)) {  /* negated, for correct nan handling */
+                mp = *ip;
+                *max_ind = i;
 #if @isfloat@
-            if (@isnan@(mp)) {
-                /* nan encountered, it's maximal */
-                break;
+                if (@isnan@(mp)) {
+                    /* nan encountered, it's maximal */
+                    break;
+                }
+#endif
             }
 #endif
         }
-#endif
     }
     return 0;
 }
@@ -1455,16 +1408,20 @@ static int
 /**end repeat**/
 
 static int
-BOOL_argmin(npy_bool *ip, npy_intp n, npy_intp *min_ind,
-            PyArrayObject *NPY_UNUSED(aip))
+BOOL_argmin(npy_bool *ip, npy_intp n, npy_intp *min_ind, int device)
 
 {
-    npy_bool * p = memchr(ip, 0, n * sizeof(*ip));
-    if (p == NULL) {
-        *min_ind = 0;
-        return 0;
+    #pragma omp target device(device) map(to: ip, n, min_ind)
+    {
+        npy_bool * p = memchr(ip, 0, n * sizeof(*ip));
+        if (p == NULL) {
+            *min_ind = 0;
+        }
+        else {
+            *min_ind = p - ip;
+        }
     }
-    *min_ind = p - ip;
+
     return 0;
 }
 
@@ -1485,60 +1442,59 @@ BOOL_argmin(npy_bool *ip, npy_intp n, npy_intp *min_ind,
  * #incr = ip++*14, ip+=2*3#
  */
 static int
-@fname@_argmin(@type@ *ip, npy_intp n, npy_intp *min_ind,
-        PyMicArrayObject *aip)
+@fname@_argmin(@type@ *ip, npy_intp n, npy_intp *min_ind, int device)
 {
-    npy_intp i;
-    @type@ mp = *ip;
+    #pragma omp target device(device) map(to: ip, n, min_ind)
+    {
+        npy_intp i;
+        @type@ mp = *ip;
 #if @iscomplex@
-    @type@ mp_im = ip[1];
+        @type@ mp_im = ip[1];
 #endif
 
-    *min_ind = 0;
+        *min_ind = 0;
 
 #if @isfloat@
-    if (@isnan@(mp)) {
-        /* nan encountered; it's minimal */
-        return 0;
-    }
+        if (!@isnan@(mp))
+            /* nan encountered; it's minimal */
 #endif
 #if @iscomplex@
-    if (@isnan@(mp_im)) {
-        /* nan encountered; it's minimal */
-        return 0;
-    }
+        if (!@isnan@(mp_im))
+            /* nan encountered; it's minimal */
 #endif
 
-    for (i = 1; i < n; i++) {
-        @incr@;
-        /*
-         * Propagate nans, similarly as max() and min()
-         */
+        for (i = 1; i < n; i++) {
+            @incr@;
+            /*
+            * Propagate nans, similarly as max() and min()
+            */
 #if @iscomplex@
-        /* Lexical order for complex numbers */
-        if ((mp > ip[0]) || ((ip[0] == mp) && (mp_im > ip[1]))
-                || @isnan@(ip[0]) || @isnan@(ip[1])) {
-            mp = ip[0];
-            mp_im = ip[1];
-            *min_ind = i;
-            if (@isnan@(mp) || @isnan@(mp_im)) {
-                /* nan encountered, it's minimal */
-                break;
+            /* Lexical order for complex numbers */
+            if ((mp > ip[0]) || ((ip[0] == mp) && (mp_im > ip[1]))
+                    || @isnan@(ip[0]) || @isnan@(ip[1])) {
+                mp = ip[0];
+                mp_im = ip[1];
+                *min_ind = i;
+                if (@isnan@(mp) || @isnan@(mp_im)) {
+                    /* nan encountered, it's minimal */
+                    break;
+                }
             }
-        }
 #else
-        if (!@le@(mp, *ip)) {  /* negated, for correct nan handling */
-            mp = *ip;
-            *min_ind = i;
+            if (!@le@(mp, *ip)) {  /* negated, for correct nan handling */
+                mp = *ip;
+                *min_ind = i;
 #if @isfloat@
-            if (@isnan@(mp)) {
-                /* nan encountered, it's minimal */
-                break;
+                if (@isnan@(mp)) {
+                    /* nan encountered, it's minimal */
+                    break;
+                }
+#endif
             }
 #endif
         }
-#endif
     }
+
     return 0;
 }
 
@@ -1552,30 +1508,33 @@ static int
  * #type = npy_datetime, npy_timedelta#
  */
 static int
-@fname@_argmin(@type@ *ip, npy_intp n, npy_intp *min_ind,
-        PyArrayObject *NPY_UNUSED(aip))
+@fname@_argmin(@type@ *ip, npy_intp n, npy_intp *min_ind, int device)
 {
-    /* NPY_DATETIME_NAT is smaller than every other value, we skip
-     * it for consistency with min().
-     */
-    npy_intp i;
-    @type@ mp = NPY_DATETIME_NAT;
+    #pragma omp target device(device) map(to: ip, n, min_ind)
+    {
+        /* NPY_DATETIME_NAT is smaller than every other value, we skip
+        * it for consistency with min().
+        */
+        npy_intp i;
+        @type@ mp = NPY_DATETIME_NAT;
 
-    i = 0;
-    while (i < n && mp == NPY_DATETIME_NAT) {
-        mp = ip[i];
-        i++;
-    }
-    if (i == n) {
-        /* All NaTs: return 0 */
-        *min_ind = 0;
-        return 0;
-    }
-    *min_ind = i - 1;
-    for (; i < n; i++) {
-        if (mp > ip[i] && ip[i] != NPY_DATETIME_NAT) {
+        i = 0;
+        while (i < n && mp == NPY_DATETIME_NAT) {
             mp = ip[i];
-            *min_ind = i;
+            i++;
+        }
+        if (i == n) {
+            /* All NaTs: return 0 */
+            *min_ind = 0;
+        }
+        else {
+            *min_ind = i - 1;
+            for (; i < n; i++) {
+                if (mp > ip[i] && ip[i] != NPY_DATETIME_NAT) {
+                    mp = ip[i];
+                    *min_ind = i;
+                }
+            }
         }
     }
     return 0;

@@ -18,6 +18,8 @@
 #include "number.h"
 #include "calculation.h"
 #include "array_assign.h"
+#include "arraytypes.h"
+#include "shape.h"
 
 static double
 power_of_ten(int n)
@@ -42,6 +44,117 @@ power_of_ten(int n)
 NPY_NO_EXPORT PyObject *
 PyMicArray_ArgMax(PyMicArrayObject *op, int axis, PyMicArrayObject *out)
 {
+    PyMicArrayObject *ap = NULL, *rp = NULL;
+    PyMicArray_ArgFunc* arg_func;
+    char *ip;
+    npy_intp *rptr;
+    npy_intp i, n, m;
+    int elsize;
+    int device;
+    NPY_BEGIN_THREADS_DEF;
+
+    if ((ap = (PyMicArrayObject *)PyMicArray_CheckAxis(op, &axis, 0)) == NULL) {
+        return NULL;
+    }
+    /*
+     * We need to permute the array so that axis is placed at the end.
+     * And all other dimensions are shifted left.
+     */
+    if (axis != PyMicArray_NDIM(ap)-1) {
+        PyArray_Dims newaxes;
+        npy_intp dims[NPY_MAXDIMS];
+        int j;
+
+        newaxes.ptr = dims;
+        newaxes.len = PyMicArray_NDIM(ap);
+        for (j = 0; j < axis; j++) {
+            dims[j] = j;
+        }
+        for (j = axis; j < PyMicArray_NDIM(ap) - 1; j++) {
+            dims[j] = j + 1;
+        }
+        dims[PyMicArray_NDIM(ap) - 1] = axis;
+        op = (PyMicArrayObject *)PyMicArray_Transpose(ap, &newaxes);
+        Py_DECREF(ap);
+        if (op == NULL) {
+            return NULL;
+        }
+    }
+    else {
+        op = ap;
+    }
+
+    device = PyMicArray_DEVICE(op);
+
+    /* Will get native-byte order contiguous copy. */
+    ap = (PyMicArrayObject *)PyMicArray_ContiguousFromAny(device, (PyObject *)op,
+                                  PyMicArray_DESCR(op)->type_num, 1, 0);
+    Py_DECREF(op);
+    if (ap == NULL) {
+        return NULL;
+    }
+    arg_func = PyMicArray_GetArrFuncs(PyMicArray_DESCR(ap)->type_num)->argmax;
+    if (arg_func == NULL) {
+        PyErr_SetString(PyExc_TypeError,
+                "data type not ordered");
+        goto fail;
+    }
+    elsize = PyMicArray_DESCR(ap)->elsize;
+    m = PyMicArray_DIMS(ap)[PyMicArray_NDIM(ap)-1];
+    if (m == 0) {
+        PyErr_SetString(PyExc_ValueError,
+                "attempt to get argmax of an empty sequence");
+        goto fail;
+    }
+
+    if (!out) {
+        rp = (PyMicArrayObject *)PyMicArray_New(device, Py_TYPE(ap),
+                                          PyMicArray_NDIM(ap)-1,
+                                          PyMicArray_DIMS(ap), NPY_INTP,
+                                          NULL, NULL, 0, 0,
+                                          (PyObject *)ap);
+        if (rp == NULL) {
+            goto fail;
+        }
+    }
+    else {
+        if ((PyMicArray_NDIM(out) != PyMicArray_NDIM(ap) - 1) ||
+                !PyArray_CompareLists(PyMicArray_DIMS(out), PyMicArray_DIMS(ap),
+                                      PyMicArray_NDIM(out))) {
+            PyErr_SetString(PyExc_ValueError,
+                    "output array does not match result of mp.argmax.");
+            goto fail;
+        }
+        rp = (PyMicArrayObject *)PyMicArray_FromArray(
+                              (PyArrayObject *)out,
+                              PyArray_DescrFromType(NPY_INTP), device,
+                              NPY_ARRAY_CARRAY | NPY_ARRAY_UPDATEIFCOPY);
+        if (rp == NULL) {
+            goto fail;
+        }
+    }
+
+    NPY_BEGIN_THREADS_DESCR(PyMicArray_DESCR(ap));
+    n = PyMicArray_SIZE(ap)/m;
+    rptr = (npy_intp *)PyMicArray_DATA(rp);
+    for (ip = PyMicArray_DATA(ap), i = 0; i < n; i++, ip += elsize*m) {
+        arg_func(ip, m, rptr, device);
+        rptr += 1;
+    }
+    NPY_END_THREADS_DESCR(PyMicArray_DESCR(ap));
+
+    Py_DECREF(ap);
+    /* Trigger the UPDATEIFCOPY if necessary */
+    if (out != NULL && out != rp) {
+        Py_DECREF(rp);
+        rp = out;
+        Py_INCREF(rp);
+    }
+    return (PyObject *)rp;
+
+ fail:
+    Py_DECREF(ap);
+    Py_XDECREF(rp);
     return NULL;
 }
 
@@ -53,6 +166,117 @@ PyMicArray_ArgMax(PyMicArrayObject *op, int axis, PyMicArrayObject *out)
 NPY_NO_EXPORT PyObject *
 PyMicArray_ArgMin(PyMicArrayObject *op, int axis, PyMicArrayObject *out)
 {
+    PyMicArrayObject *ap = NULL, *rp = NULL;
+    PyMicArray_ArgFunc* arg_func;
+    char *ip;
+    npy_intp *rptr;
+    npy_intp i, n, m;
+    int elsize;
+    int device;
+    NPY_BEGIN_THREADS_DEF;
+
+    if ((ap = (PyMicArrayObject *)PyMicArray_CheckAxis(op, &axis, 0)) == NULL) {
+        return NULL;
+    }
+    /*
+     * We need to permute the array so that axis is placed at the end.
+     * And all other dimensions are shifted left.
+     */
+    if (axis != PyMicArray_NDIM(ap)-1) {
+        PyArray_Dims newaxes;
+        npy_intp dims[NPY_MAXDIMS];
+        int j;
+
+        newaxes.ptr = dims;
+        newaxes.len = PyMicArray_NDIM(ap);
+        for (j = 0; j < axis; j++) {
+            dims[j] = j;
+        }
+        for (j = axis; j < PyMicArray_NDIM(ap) - 1; j++) {
+            dims[j] = j + 1;
+        }
+        dims[PyMicArray_NDIM(ap) - 1] = axis;
+        op = (PyMicArrayObject *)PyMicArray_Transpose(ap, &newaxes);
+        Py_DECREF(ap);
+        if (op == NULL) {
+            return NULL;
+        }
+    }
+    else {
+        op = ap;
+    }
+
+    device = PyMicArray_DEVICE(op);
+
+    /* Will get native-byte order contiguous copy. */
+    ap = (PyMicArrayObject *)PyMicArray_ContiguousFromAny(device, (PyObject *)op,
+                                  PyMicArray_DESCR(op)->type_num, 1, 0);
+    Py_DECREF(op);
+    if (ap == NULL) {
+        return NULL;
+    }
+    arg_func = PyMicArray_GetArrFuncs(PyMicArray_DESCR(ap)->type_num)->argmin;
+    if (arg_func == NULL) {
+        PyErr_SetString(PyExc_TypeError,
+                "data type not ordered");
+        goto fail;
+    }
+    elsize = PyMicArray_DESCR(ap)->elsize;
+    m = PyMicArray_DIMS(ap)[PyMicArray_NDIM(ap)-1];
+    if (m == 0) {
+        PyErr_SetString(PyExc_ValueError,
+                "attempt to get argmin of an empty sequence");
+        goto fail;
+    }
+
+    if (!out) {
+        rp = (PyMicArrayObject *)PyMicArray_New(device, Py_TYPE(ap),
+                                          PyMicArray_NDIM(ap)-1,
+                                          PyMicArray_DIMS(ap), NPY_INTP,
+                                          NULL, NULL, 0, 0,
+                                          (PyObject *)ap);
+        if (rp == NULL) {
+            goto fail;
+        }
+    }
+    else {
+        if ((PyMicArray_NDIM(out) != PyMicArray_NDIM(ap) - 1) ||
+                !PyArray_CompareLists(PyMicArray_DIMS(out), PyMicArray_DIMS(ap),
+                                      PyMicArray_NDIM(out))) {
+            PyErr_SetString(PyExc_ValueError,
+                    "output array does not match result of mp.argmin.");
+            goto fail;
+        }
+        rp = (PyMicArrayObject *)PyMicArray_FromArray(
+                              (PyArrayObject *)out,
+                              PyArray_DescrFromType(NPY_INTP), device,
+                              NPY_ARRAY_CARRAY | NPY_ARRAY_UPDATEIFCOPY);
+        if (rp == NULL) {
+            goto fail;
+        }
+    }
+
+    NPY_BEGIN_THREADS_DESCR(PyMicArray_DESCR(ap));
+    n = PyMicArray_SIZE(ap)/m;
+    rptr = (npy_intp *)PyMicArray_DATA(rp);
+    for (ip = PyMicArray_DATA(ap), i = 0; i < n; i++, ip += elsize*m) {
+        arg_func(ip, m, rptr, device);
+        rptr += 1;
+    }
+    NPY_END_THREADS_DESCR(PyMicArray_DESCR(ap));
+
+    Py_DECREF(ap);
+    /* Trigger the UPDATEIFCOPY if necessary */
+    if (out != NULL && out != rp) {
+        Py_DECREF(rp);
+        rp = out;
+        Py_INCREF(rp);
+    }
+    return (PyObject *)rp;
+
+ fail:
+    Py_DECREF(ap);
+    Py_XDECREF(rp);
     return NULL;
 }
 

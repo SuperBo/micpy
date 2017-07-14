@@ -3,6 +3,22 @@ from numpy.core.numeric import normalize_axis_tuple
 from numpy import AxisError
 from .multiarray import array as micarray
 
+
+def _wrapfunc(obj, method, *args, **kwds):
+    try:
+        return getattr(obj, method)(*args, **kwds)
+
+    # An AttributeError occurs if the object does not have
+    # such a method in its class.
+
+    # A TypeError occurs if the object does have such a method
+    # in its class, but its signature is not identical to that
+    # of NumPy's. This situation has occurred in the case of
+    # a downstream library like 'pandas'.
+    except (AttributeError, TypeError):
+        return None
+
+
 def asarray(a, dtype=None, order=None):
     """Convert the input to an array.
 
@@ -198,3 +214,115 @@ def moveaxis(a, source, destination):
 
     result = transpose(order)
     return result
+
+
+def argmax(a, axis=None, out=None):
+    """
+    Returns the indices of the maximum values along an axis.
+
+    Parameters
+    ----------
+    a : array_like
+        Input array.
+    axis : int, optional
+        By default, the index is into the flattened array, otherwise
+        along the specified axis.
+    out : array, optional
+        If provided, the result will be inserted into this array. It should
+        be of the appropriate shape and dtype.
+
+    Returns
+    -------
+    index_array : ndarray of ints
+        Array of indices into the array. It has the same shape as `a.shape`
+        with the dimension along `axis` removed.
+
+    See Also
+    --------
+    ndarray.argmax, argmin
+    amax : The maximum value along a given axis.
+    unravel_index : Convert a flat index into an index tuple.
+
+    Notes
+    -----
+    In case of multiple occurrences of the maximum values, the indices
+    corresponding to the first occurrence are returned.
+
+    Examples
+    --------
+    >>> a = mp.arange(6).reshape(2,3)
+    >>> a
+    array([[0, 1, 2],
+           [3, 4, 5]])
+    >>> mp.argmax(a)
+    5
+    >>> mp.argmax(a, axis=0)
+    array([1, 1, 1])
+    >>> mp.argmax(a, axis=1)
+    array([2, 2])
+
+    >>> b = mp.arange(6)
+    >>> b[1] = 5
+    >>> b
+    array([0, 5, 2, 3, 4, 5])
+    >>> mp.argmax(b) # Only the first occurrence is returned.
+    1
+
+    """
+    return _wrapfunc(a, 'argmax', axis=axis, out=out)
+
+
+def argmin(a, axis=None, out=None):
+    """
+    Returns the indices of the minimum values along an axis.
+
+    Parameters
+    ----------
+    a : array_like
+        Input array.
+    axis : int, optional
+        By default, the index is into the flattened array, otherwise
+        along the specified axis.
+    out : array, optional
+        If provided, the result will be inserted into this array. It should
+        be of the appropriate shape and dtype.
+
+    Returns
+    -------
+    index_array : ndarray of ints
+        Array of indices into the array. It has the same shape as `a.shape`
+        with the dimension along `axis` removed.
+
+    See Also
+    --------
+    ndarray.argmin, argmax
+    amin : The minimum value along a given axis.
+    unravel_index : Convert a flat index into an index tuple.
+
+    Notes
+    -----
+    In case of multiple occurrences of the minimum values, the indices
+    corresponding to the first occurrence are returned.
+
+    Examples
+    --------
+    >>> a = mp.arange(6).reshape(2,3)
+    >>> a
+    array([[0, 1, 2],
+           [3, 4, 5]])
+    >>> mp.argmin(a)
+    0
+    >>> mp.argmin(a, axis=0)
+    array([0, 0, 0])
+    >>> mp.argmin(a, axis=1)
+    array([0, 0])
+
+    >>> b = mp.arange(6)
+    >>> b[4] = 0
+    >>> b
+    array([0, 1, 2, 3, 0, 5])
+    >>> mp.argmin(b) # Only the first occurrence is returned.
+    0
+
+    """
+    return _wrapfunc(a, 'argmin', axis=axis, out=out)
