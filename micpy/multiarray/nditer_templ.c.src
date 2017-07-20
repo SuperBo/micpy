@@ -182,6 +182,14 @@ mpyiter_iternext_itflags@tag_itflags@_dims@tag_ndim@_iters@tag_nop@(
 /**end repeat1**/
 /**end repeat**/
 
+/* Specialization of iternext for when the iteration size is 1 */
+static int
+mpyiter_iternext_sizeone(MpyIter *iter)
+{
+    return 0;
+}
+
+#pragma omp end declare target
 
 /**begin repeat
  * #const_nop = 1, 2, 3, 4, NPY_MAXDIMS#
@@ -195,8 +203,79 @@ mpyiter_iternext_itflags@tag_itflags@_dims@tag_ndim@_iters@tag_nop@(
 static int
 mpyiter_buffered_reduce_iternext_iters@tag_nop@(MpyIter *iter)
 {
-    /* TODO: enable when buffer is implemented */
-   return 0;
+    npy_uint32 itflags = NIT_ITFLAGS(iter);
+    /*int ndim = NIT_NDIM(iter);*/
+#if @const_nop@ >= NPY_MAXDIMS
+    int nop = NIT_NOP(iter);
+#else
+    const int nop = @const_nop@;
+#endif
+
+    int iop;
+
+    NpyIter_AxisData *axisdata;
+    NpyIter_BufferData *bufferdata = NIT_BUFFERDATA(iter);
+    char **ptrs;
+    char *prev_dataptrs[NPY_MAXARGS];
+
+    ptrs = NBF_PTRS(bufferdata);
+
+    /*
+     * If the iterator handles the inner loop, need to increment all
+     * the indices and pointers
+     */
+    if (!(itflags&NPY_ITFLAG_EXLOOP)) {
+        /* Increment within the buffer */
+        if (++NIT_ITERINDEX(iter) < NBF_BUFITEREND(bufferdata)) {
+            npy_intp *strides;
+
+            strides = NBF_STRIDES(bufferdata);
+            for (iop = 0; iop < nop; ++iop) {
+                ptrs[iop] += strides[iop];
+            }
+            return 1;
+        }
+    }
+    else {
+        NIT_ITERINDEX(iter) += NBF_SIZE(bufferdata);
+    }
+
+    NPY_IT_DBG_PRINT1("Iterator: Finished iteration %d of outer reduce loop\n",
+                            (int)NBF_REDUCE_POS(bufferdata));
+    /* The outer increment for the reduce double loop */
+    if (++NBF_REDUCE_POS(bufferdata) < NBF_REDUCE_OUTERSIZE(bufferdata)) {
+        npy_intp *reduce_outerstrides = NBF_REDUCE_OUTERSTRIDES(bufferdata);
+        char **reduce_outerptrs = NBF_REDUCE_OUTERPTRS(bufferdata);
+        for (iop = 0; iop < nop; ++iop) {
+            char *ptr = reduce_outerptrs[iop] + reduce_outerstrides[iop];
+            ptrs[iop] = ptr;
+            reduce_outerptrs[iop] = ptr;
+        }
+        NBF_BUFITEREND(bufferdata) = NIT_ITERINDEX(iter) + NBF_SIZE(bufferdata);
+        return 1;
+    }
+
+    /* Save the previously used data pointers */
+    axisdata = NIT_AXISDATA(iter);
+    memcpy(prev_dataptrs, NAD_PTRS(axisdata), NPY_SIZEOF_INTP*nop);
+
+    /* Write back to the arrays */
+    mpyiter_copy_from_buffers(iter);
+
+    /* Check if we're past the end */
+    if (NIT_ITERINDEX(iter) >= NIT_ITEREND(iter)) {
+        NBF_SIZE(bufferdata) = 0;
+        return 0;
+    }
+    /* Increment to the next buffer */
+    else {
+        mpyiter_goto_iterindex(iter, NIT_ITERINDEX(iter));
+    }
+
+    /* Prepare the next buffers and set iterend/size */
+    mpyiter_copy_to_buffers(iter, prev_dataptrs);
+
+    return 1;
 }
 
 /**end repeat**/
@@ -205,22 +284,57 @@ mpyiter_buffered_reduce_iternext_iters@tag_nop@(MpyIter *iter)
 static int
 mpyiter_buffered_iternext(MpyIter *iter)
 {
-    /* TODO: enable when buffer is implemented */
-   return 0;
+    npy_uint32 itflags = NIT_ITFLAGS(iter);
+    /*int ndim = NIT_NDIM(iter);*/
+    int nop = NIT_NOP(iter);
+
+    NpyIter_BufferData *bufferdata = NIT_BUFFERDATA(iter);
+
+    /*
+     * If the iterator handles the inner loop, need to increment all
+     * the indices and pointers
+     */
+    if (!(itflags&NPY_ITFLAG_EXLOOP)) {
+        /* Increment within the buffer */
+        if (++NIT_ITERINDEX(iter) < NBF_BUFITEREND(bufferdata)) {
+            int iop;
+            npy_intp *strides;
+            char **ptrs;
+
+            strides = NBF_STRIDES(bufferdata);
+            ptrs = NBF_PTRS(bufferdata);
+            for (iop = 0; iop < nop; ++iop) {
+                ptrs[iop] += strides[iop];
+            }
+            return 1;
+        }
+    }
+    else {
+        NIT_ITERINDEX(iter) += NBF_SIZE(bufferdata);
+    }
+
+    /* Write back to the arrays */
+    mpyiter_copy_from_buffers(iter);
+
+    /* Check if we're past the end */
+    if (NIT_ITERINDEX(iter) >= NIT_ITEREND(iter)) {
+        NBF_SIZE(bufferdata) = 0;
+        return 0;
+    }
+    /* Increment to the next buffer */
+    else {
+        mpyiter_goto_iterindex(iter, NIT_ITERINDEX(iter));
+    }
+
+    /* Prepare the next buffers and set iterend/size */
+    mpyiter_copy_to_buffers(iter, NULL);
+
+    return 1;
 }
 
 /**end repeat2**/
 /**end repeat1**/
 /**end repeat**/
-
-/* Specialization of iternext for when the iteration size is 1 */
-static int
-mpyiter_iternext_sizeone(MpyIter *iter)
-{
-    return 0;
-}
-
-#pragma omp end declare target
 
 
 /*NUMPY_API
@@ -507,6 +621,22 @@ MpyIter_GetMultiIndex(MpyIter *iter, char **errmsg)
 
 }
 
+/*NUMPY_API
+ * Check whether a iternext func can be safely offloaded to device
+ */
+NPY_NO_EXPORT npy_bool
+MpyIter_CanOffloadIternext(MpyIter_IterNextFunc *iternext)
+{
+    if (iternext == &mpyiter_buffered_reduce_iternext_iters1 ||
+        iternext == &mpyiter_buffered_reduce_iternext_iters2 ||
+        iternext == &mpyiter_buffered_reduce_iternext_iters3 ||
+        iternext == &mpyiter_buffered_reduce_iternext_iters4 ||
+        iternext == &mpyiter_buffered_reduce_iternext_itersANY ||
+        iternext == &mpyiter_buffered_iternext) {
+            return NPY_FALSE;
+    }
+    return NPY_TRUE;
+}
 
 /* Dummy function
  * This function is to ensure that
@@ -518,11 +648,6 @@ static void DummyOffloadBuild(void) {
 #pragma omp target
     {
         f = &mpyiter_iternext_sizeone;
-        f = &mpyiter_buffered_iternext;
-        f = &mpyiter_buffered_reduce_iternext_iters1;
-        f = &mpyiter_buffered_reduce_iternext_iters2;
-        f = &mpyiter_buffered_reduce_iternext_iters3;
-        f = &mpyiter_buffered_reduce_iternext_iters4;
         f = &mpyiter_iternext_itflags0_dims1_iters1;
 
 /**begin repeat

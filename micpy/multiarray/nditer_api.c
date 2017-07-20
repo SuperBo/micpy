@@ -20,7 +20,8 @@
 #include "templ_common.h"
 
 #include <numpy/npy_common.h>
-#include <mpy_common.h>
+#include "mpy_common.h"
+#include "common.h"
 
 #include "nditer.h"
 #include "creators.h"
@@ -2166,7 +2167,7 @@ mpyiter_copy_from_buffers(MpyIter *iter)
              * array pointing into the buffer, it will get None
              * values for its references after this.
              */
-            memset(buffer, 0, dtypes[iop]->elsize*transfersize);
+            target_memset(buffer, 0, dtypes[iop]->elsize*transfersize, device);
         }
     }
 
@@ -2946,21 +2947,46 @@ npyiter_checkreducesize(MpyIter *iter, npy_intp count,
  */
 NPY_NO_EXPORT void mpyiter_update_offiter(MpyIter *iter)
 {
-    npy_uint32 itflags;
-    npy_uint8 ndim, nop;
-    void *offiter;
-    int cpu_device;
+    npy_uint32 itflags = NIT_ITFLAGS(iter);
+    int ndim = NIT_NDIM(iter);
+    int nop = NIT_NOP(iter);
+    void *offiter = (void *) NIT_OFFITER(iter);
 
-    /* Fill in value */
-    itflags = NIT_ITFLAGS(iter);
-    ndim = NIT_NDIM(iter);
-    nop = NIT_NOP(iter);
-    offiter = (void *) NIT_OFFITER(iter);
-    cpu_device = omp_get_initial_device();
-
-    omp_target_memcpy(offiter, (void *) iter,
+    target_memcpy(offiter, (void *)iter,
                         NIT_SIZEOF_ITERATOR(itflags, ndim, nop),
-                        0, 0, NIT_DEVICE(iter), cpu_device);
+                        NIT_DEVICE(iter), CPU_DEVICE);
+}
+
+/* This function is called when iter's bufferdata is
+ * updated in host.
+ * Initially intended to used in internext functions
+ */
+NPY_NO_EXPORT void mpyiter_update_offbuffdata(MpyIter *iter)
+{
+    npy_uint32 itflags = NIT_ITFLAGS(iter);
+    int ndim = NIT_NDIM(iter);
+    int nop = NIT_NOP(iter);
+    MpyIter *offiter = NIT_OFFITER(iter);
+
+    target_memcpy(NIT_BUFFERDATA(offiter), NIT_BUFFERDATA(iter),
+                        NIT_BUFFERDATA_SIZEOF(itflags, ndim, nop),
+                        NIT_DEVICE(iter), CPU_DEVICE);
+}
+
+/* This function is called when iter's axisdata is
+ * updated in host.
+ * Initially intended to used in internext functions.
+ */
+NPY_NO_EXPORT void mpyiter_update_offaxisdata(MpyIter *iter)
+{
+    npy_uint32 itflags = NIT_ITFLAGS(iter);
+    int ndim = NIT_NDIM(iter);
+    int nop = NIT_NOP(iter);
+    MpyIter *offiter = NIT_OFFITER(iter);
+
+    target_memcpy(NIT_AXISDATA(offiter), NIT_AXISDATA(iter),
+                        NIT_AXISDATA_SIZEOF(itflags, ndim, nop)*(ndim ? ndim : 1),
+                        NIT_DEVICE(iter), CPU_DEVICE);
 }
 
 NPY_NO_EXPORT void MpyIter_UpdateOffIter(MpyIter *iter)

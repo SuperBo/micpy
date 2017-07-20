@@ -226,9 +226,6 @@ MpyIter_AdvancedNew(int nop, PyMicArrayObject **op_in, npy_uint32 flags,
     /* Allocate on mic device */
     offiter = omp_target_alloc(
                     NIT_SIZEOF_ITERATOR(itflags, ndim, nop), device);
-    omp_target_associate_ptr(iter, offiter,
-                    NIT_SIZEOF_ITERATOR(itflags, ndim, nop), 0, device);
-
 
     NPY_IT_TIME_POINT(c_malloc);
 
@@ -253,7 +250,6 @@ MpyIter_AdvancedNew(int nop, PyMicArrayObject **op_in, npy_uint32 flags,
                         flags,
                         op_flags, op_itflags,
                         &NIT_MASKOP(iter))) {
-        omp_target_disassociate_ptr(iter, device);
         omp_target_free((void *) offiter, device);
         PyObject_Free(iter);
         return NULL;
@@ -743,7 +739,6 @@ MpyIter_Deallocate(MpyIter *iter)
     }
 
     /* Deallocate device memory */
-    omp_target_disassociate_ptr(iter, device);
     target_free(NIT_OFFITER(iter), device);
 
     /* Deallocate the iterator memory */

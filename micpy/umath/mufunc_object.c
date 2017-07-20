@@ -1119,18 +1119,18 @@ iterator_loop(PyUFuncObject *ufunc,
             MpyIter_Deallocate(iter);
             return -1;
         }
-        dataptr = MpyIter_GetOffDataPtrArray(iter);
-        stride = MpyIter_GetOffInnerStrideArray(iter);
-        count_ptr = MpyIter_GetOffInnerLoopSizePtr(iter);
+        dataptr = (npy_intp *) MpyIter_GetDataPtrArray(iter);
+        stride = MpyIter_GetInnerStrideArray(iter);
+        count_ptr = MpyIter_GetInnerLoopSizePtr(iter);
         device = MpyIter_GetDevice(iter);
 
         MPY_BEGIN_THREADS_NDITER(iter);
 
         /* Execute the loop */
-#pragma omp target device(device) map(to:offloop, iternext, \
-                dataptr, count_ptr, stride, offdata)
         do {
             //NPY_UF_DBG_PRINT1("iterator loop count %d\n", (int)*count_ptr);
+#pragma omp target device(device) map(to: offloop, offdata, count_ptr[0:1],\
+                                          dataptr[0:nop], stride[0:nop])
             offloop((char **)dataptr, count_ptr, stride, offdata);
         } while (iternext(iter));
 
@@ -2566,6 +2566,8 @@ reduce_loop(MpyIter *iter,
 {
     PyArray_Descr *dtypes[3], **iter_dtypes;
     npy_intp *dataptrs, *strides, *countptr;
+    npy_intp dataptrs_copy[3];
+    npy_intp strides_copy[3];
     int needs_api, device;
 
     /* The normal selected inner loop */
@@ -2594,72 +2596,72 @@ reduce_loop(MpyIter *iter,
 
     innerloopdata = loopdata;
     isfirstvisit = &MpyIter_IsFirstVisit;
-    dataptrs = MpyIter_GetOffDataPtrArray(iter);
-    strides = MpyIter_GetOffInnerStrideArray(iter);
-    countptr = MpyIter_GetOffInnerLoopSizePtr(iter);
+    dataptrs = (npy_intp *) MpyIter_GetDataPtrArray(iter);
+    strides = MpyIter_GetInnerStrideArray(iter);
+    countptr = MpyIter_GetInnerLoopSizePtr(iter);
     device = MpyIter_GetDevice(iter);
 
     MPY_BEGIN_THREADS_NDITER(iter);
 
-    #pragma omp target device(device) map(to: dataptrs, strides, countptr,\
-                                              innerloop, innerloopdata, iternext,\
-                                              isfirstvisit, skip_first_count)
-    {
-        char *dataptrs_copy[3];
-        npy_intp strides_copy[3];
-        int finish = 0;
+    if (skip_first_count > 0) {
+        do {
+            npy_intp count = *countptr;
 
-        if (skip_first_count > 0) {
-            do {
-                npy_intp count = *countptr;
-
-                /* Skip any first-visit elements */
-                if (isfirstvisit(iter, 0)) {
-                    if (strides[0] == 0) {
-                        --count;
-                        --skip_first_count;
-                        dataptrs[1] += strides[1];
-                    }
-                    else {
-                        skip_first_count -= count;
-                        count = 0;
-                    }
+            /* Skip any first-visit elements */
+            if (MpyIter_IsFirstVisit(iter, 0)) {
+                if (strides[0] == 0) {
+                    --count;
+                    --skip_first_count;
+                    dataptrs[1] += strides[1];
                 }
+                else {
+                    skip_first_count -= count;
+                    count = 0;
+                }
+            }
 
-                /* Turn the two items into three for the inner loop */
-                dataptrs_copy[0] = (char *) dataptrs[0];
-                dataptrs_copy[1] = (char *) dataptrs[1];
-                dataptrs_copy[2] = (char *) dataptrs[0];
-                strides_copy[0] = strides[0];
-                strides_copy[1] = strides[1];
-                strides_copy[2] = strides[0];
-                innerloop(dataptrs_copy, &count,
-                            strides_copy, innerloopdata);
+            /* Turn the two items into three for the inner loop */
+            dataptrs_copy[0] = dataptrs[0];
+            dataptrs_copy[1] = dataptrs[1];
+            dataptrs_copy[2] = dataptrs[0];
+            strides_copy[0] = strides[0];
+            strides_copy[1] = strides[1];
+            strides_copy[2] = strides[0];
 
-                /* Jump to the faster loop when skipping is done */
-                if (skip_first_count == 0) {
-                    if (!iternext(iter)) {
-                        finish = 1;
-                    }
+#pragma omp target device(device) map(to: dataptrs_copy, count,\
+                                          strides_copy,\
+                                          innerloop, innerloopdata)
+            innerloop((char **)dataptrs_copy, &count,
+                        strides_copy, innerloopdata);
+
+            /* Jump to the faster loop when skipping is done */
+            if (skip_first_count == 0) {
+                if (iternext(iter)) {
                     break;
                 }
-            } while (iternext(iter));
-        }
-        if (!finish) {
-            do {
-                /* Turn the two items into three for the inner loop */
-                dataptrs_copy[0] = (char *) dataptrs[0];
-                dataptrs_copy[1] = (char *) dataptrs[1];
-                dataptrs_copy[2] = (char *) dataptrs[0];
-                strides_copy[0] = strides[0];
-                strides_copy[1] = strides[1];
-                strides_copy[2] = strides[0];
-                innerloop(dataptrs_copy, countptr,
-                            strides_copy, innerloopdata);
-            } while (iternext(iter));
-        }
+                else {
+                    goto finish_loop;
+                }
+            }
+        } while (iternext(iter));
     }
+    do {
+        /* Turn the two items into three for the inner loop */
+        dataptrs_copy[0] = dataptrs[0];
+        dataptrs_copy[1] = dataptrs[1];
+        dataptrs_copy[2] = dataptrs[0];
+        strides_copy[0] = strides[0];
+        strides_copy[1] = strides[1];
+        strides_copy[2] = strides[0];
 
+#pragma omp target device(device) map(to: dataptrs_copy, strides_copy,\
+                                          innerloop, innerloopdata,\
+                                          countptr[0:1])
+        innerloop((char **) dataptrs_copy, countptr,
+                    strides_copy, innerloopdata);
+    } while (iternext(iter));
+
+finish_loop:
     NPY_END_THREADS;
 
     return (needs_api && PyErr_Occurred()) ? -1 : 0;
