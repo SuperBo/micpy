@@ -11,7 +11,8 @@ if __MICPY_SETUP__:
 else:
     from .multiarray import *
     from .umath import *
-    from .numeric import (asarray, rollaxis, moveaxis, argmax, argmin)
+    from .numeric import (full, full_like, asarray,
+                          rollaxis, moveaxis, argmax, argmin)
     from .shape_base import (expand_dims)
     from numpy import (int, int_, int8, int16, int32, int64,
                        uint, uint8, uint16, uint32, uint64,

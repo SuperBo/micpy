@@ -692,34 +692,50 @@ array_copyto(PyObject *NPY_UNUSED(ignored), PyObject *args, PyObject *kwds)
 
     static char *kwlist[] = {"dst","src","casting","where",NULL};
     PyObject *wheremask_in = NULL;
-    PyMicArrayObject *dst = NULL, *src = NULL, *wheremask = NULL;
+    PyMicArrayObject *dst = NULL, *wheremask = NULL;
+    PyArrayObject *src = NULL;
     NPY_CASTING casting = NPY_SAME_KIND_CASTING;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O&|O&O:copyto", kwlist,
                 &PyMicArray_Type, &dst,
-                &PyMicArray_Converter, &src,
+                &PyMicArray_GeneralConverter, &src,
                 &PyArray_CastingConverter, &casting,
                 &wheremask_in)) {
         goto fail;
     }
 
-    if (wheremask_in != NULL) {
-        /* Get the boolean where mask */
-        PyArray_Descr *dtype = PyArray_DescrFromType(NPY_BOOL);
-        if (dtype == NULL) {
-            goto fail;
+    if (PyMicArray_Check(src)) {
+        if (wheremask_in != NULL) {
+            /* Get the boolean where mask */
+            PyArray_Descr *dtype = PyArray_DescrFromType(NPY_BOOL);
+            if (dtype == NULL) {
+                goto fail;
+            }
+            wheremask = (PyMicArrayObject *)PyMicArray_FromAny(
+                                            PyMicArray_DEVICE(dst),
+                                            wheremask_in,
+                                            dtype, 0, 0, 0, NULL);
+            if (wheremask == NULL) {
+                goto fail;
+            }
         }
-        wheremask = (PyMicArrayObject *)PyMicArray_FromAny(
-                                        PyMicArray_DEVICE(dst),
-                                        wheremask_in,
-                                        dtype, 0, 0, 0, NULL);
-        if (wheremask == NULL) {
+
+        if (PyMicArray_AssignArray(dst, (PyMicArrayObject *)src,
+                                        wheremask, casting) < 0) {
             goto fail;
         }
     }
+    else {
+        if (wheremask_in != NULL) {
+            PyErr_SetString(PyExc_ValueError,
+                "Do not support where mask when copy from host");
+            Py_INCREF(wheremask_in);
+            goto fail;
+        }
 
-    if (PyMicArray_AssignArray(dst, src, wheremask, casting) < 0) {
-        goto fail;
+        if (PyMicArray_AssignArrayFromHost(dst, src, casting) < 0) {
+            goto fail;
+        }
     }
 
     Py_XDECREF(src);
