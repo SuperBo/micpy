@@ -615,6 +615,7 @@ PyMicArray_FromAny(int device, PyObject *op, PyArray_Descr *newtype, int min_dep
     if (arr == NULL) {
         return NULL;
     }
+    Py_XINCREF(newtype);
     ret = PyMicArray_FromArray(arr, newtype, device, flags);
     Py_DECREF(arr);
     return ret;
