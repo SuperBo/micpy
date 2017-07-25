@@ -402,7 +402,13 @@ ufunc_pre_typeresolver(PyUFuncObject *ufunc, PyMicArrayObject **op,
             ptrs[i] = PyMicArray_DATA(op[i]);
             target_memcpy(ptr, PyMicArray_DATA(op[i]),
                 PyMicArray_ITEMSIZE(op[i]), CPU_DEVICE, PyMicArray_DEVICE(op[i]));
-            PyMicArray_DATA(op[i]) = ptr;
+        }
+    }
+
+    /* Change array data to buffer address */
+    for (i = 0; i < ufunc->nin; ++i) {
+        if (PyMicArray_NDIM(op[i]) == 0) {
+            PyMicArray_DATA(op[i]) = &(buf[i*bufsize]);
         }
     }
 }
