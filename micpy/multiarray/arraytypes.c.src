@@ -432,6 +432,9 @@ CLONGDOUBLE_getitem(void *ip, void *vap)
     return PyArray_Scalar(&temp, PyMicArray_DESCR(ap), NULL);
 }
 
+#define DATETIME_getitem NULL
+#define TIMEDELTA_getitem NULL
+
 /*
  *****************************************************************************
  **                       TYPE TO TYPE CONVERSIONS                          **
@@ -2550,7 +2553,7 @@ static PyMicArray_ArrFuncs _Py@NAME@_MicArrFuncs = {
         NULL,
         NULL
     },
-    NULL, //TODO: @from@_getitem,
+    @from@_getitem,
     NULL, //TODO: @from@_setitem,
     (PyMicArray_CopySwapNFunc*)@from@_copyswapn,
     (PyMicArray_CopySwapFunc*)@from@_copyswap,
