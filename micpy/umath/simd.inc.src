@@ -104,6 +104,7 @@ abs_intp(npy_intp x)
     for(i = 0; i < peel; i++)
 
 #define LOOP_BLOCKED(type, vsize)\
+    _Pragma("omp parallel for")\
     for(; i < mpy_blocked_end(peel, sizeof(type), vsize, n);\
             i += (vsize / sizeof(type)))
 

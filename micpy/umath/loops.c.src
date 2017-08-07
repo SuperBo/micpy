@@ -38,6 +38,11 @@
 #define PW_BLOCKSIZE    128
 
 /*
+ * chunksize (in bytes) for OpenMP iteration scheduling
+ */
+#define OMP_CHUNKSIZE   256
+
+/*
  * include vectorized functions and dispatchers
  * this file is safe to include also for generic builds
  * platform specific instructions are either masked via the preprocessor or
@@ -78,6 +83,16 @@
     npy_intp os1 = steps[1];\
     npy_intp n = dimensions[0];\
     npy_intp i;\
+    _Pragma("omp parallel for simd linear(i,op1:os1)")\
+    for(i = 0; i < n; i++, op1 += os1)
+
+#define OUTPUT_LOOP_SIZE(size)\
+    char *op1 = args[1];\
+    npy_intp os1 = steps[1];\
+    npy_intp n = dimensions[0];\
+    npy_intp i;\
+    _Pragma("omp parallel for simd \
+                 schedule(static,OMP_CHUNKSIZE/size) linear(i,op1:os1)")\
     for(i = 0; i < n; i++, op1 += os1)
 
 #define UNARY_LOOP\
@@ -123,6 +138,13 @@
     npy_intp n = dimensions[0];\
     npy_intp i;\
     for(i = 0; i < n; i++, ip1 += is1, op1 += os1, op2 += os2)
+
+#define BINARY_LOOP_NOOMP\
+    char *ip1 = args[0], *ip2 = args[1], *op1 = args[2];\
+    npy_intp is1 = steps[0], is2 = steps[1], os1 = steps[2];\
+    npy_intp n = dimensions[0];\
+    npy_intp i;\
+    for(i = 0; i < n; i++, ip1 += is1, ip2 += is2, op1 += os1)
 
 #define BINARY_LOOP\
     char *ip1 = args[0], *ip2 = args[1], *op1 = args[2];\
@@ -187,6 +209,18 @@
     } \
     } \
     while (0)
+
+#define BINARY_REDUCE_LOOP_INNER_NOOMP\
+    char *ip2 = args[1]; \
+    npy_intp is2 = steps[1]; \
+    npy_intp n = dimensions[0]; \
+    npy_intp i; \
+    for(i = 0; i < n; i++, ip2 += is2)
+
+#define BINARY_REDUCE_LOOP_NOOMP(TYPE)\
+    char *iop1 = args[0]; \
+    TYPE io1 = *(TYPE *)iop1; \
+    BINARY_REDUCE_LOOP_INNER_NOOMP
 
 #define BINARY_REDUCE_LOOP_INNER\
     char *ip2 = args[1]; \
@@ -626,7 +660,7 @@ BOOL_@kind@(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED
         }
 #endif
         else {
-            BINARY_REDUCE_LOOP(npy_bool) {
+            BINARY_REDUCE_LOOP_NOOMP(npy_bool) {
                 const npy_bool in2 = *(npy_bool *)ip2;
                 io1 = io1 @OP@ in2;
                 if (io1 @SC@ 0) {
@@ -897,7 +931,11 @@ NPY_NO_EXPORT void
 @TYPE@_power(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func))
 {
 #ifdef __MIC__
+#if @SIGNED@
+    BINARY_LOOP_NOOMP {
+#else
     BINARY_LOOP {
+#endif
         @type@ in1 = *(@type@ *)ip1;
         @type@ in2 = *(@type@ *)ip2;
         @type@ out;
@@ -1234,7 +1272,7 @@ NPY_NO_EXPORT void
 @TYPE@_@kind@(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func))
 {
 #ifdef __MIC__
-    BINARY_LOOP {
+    BINARY_LOOP_NOOMP {
         const @type@ in1 = *(@type@ *)ip1;
         const @type@ in2 = *(@type@ *)ip2;
         const npy_bool res = in1 @OP@ in2;
@@ -1252,7 +1290,7 @@ NPY_NO_EXPORT void
 @TYPE@_not_equal(char **args, npy_intp *dimensions, npy_intp *steps, void *NPY_UNUSED(func))
 {
 #ifdef __MIC__
-    BINARY_LOOP {
+    BINARY_LOOP_NOOMP {
         const @type@ in1 = *(@type@ *)ip1;
         const @type@ in2 = *(@type@ *)ip2;
         *((npy_bool *)op1) = in1 != in2;

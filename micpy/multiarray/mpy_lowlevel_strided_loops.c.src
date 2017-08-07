@@ -142,9 +142,23 @@ static void
     /*printf("fn @prefix@_@oper@_size@elsize@\n");*/
     #pragma omp target device(device) map(to: N, _dst, dst_stride, _src, src_stride)
     {
-        char *dst = (char *) _dst;
-        char *src = (char *) _src;
-        while (N--) {
+        char *dst, *src;
+        npy_intp i;
+
+        #pragma omp parallel for private(dst,src)
+        for (i = 0; i < N; ++i) {
+#if @dst_contig@
+            dst = (char *) _dst + @elsize@ * i;
+#else
+            dst = (char *) _dst + dst_stride * i;
+#endif
+
+#if @src_contig@
+            src = (char *) _src + @elsize@ * i;
+#else
+            src = (char *) _src + src_stride * i;
+#endif
+
 #if @is_aligned@
         /* aligned copy and swap */
 #  if @elsize@ != 16
@@ -173,18 +187,6 @@ static void
             @swap@@elsize_half@(dst + @elsize_half@);
 #  endif
 
-#endif
-
-#if @dst_contig@
-            dst += @elsize@;
-#else
-            dst += dst_stride;
-#endif
-
-#if @src_contig@
-                src += @elsize@;
-#else
-                src += src_stride;
 #endif
         }
     }
@@ -246,17 +248,20 @@ static NPY_GCC_OPT_3 void
 #    endif
 #  endif
 
-        while (N--) {
+
+        npy_intp i;
+        #pragma omp parallel for private(dst)
+        for (i = 0; i < N; ++i) {
+#  if @dst_contig@
+            dst = (char *) _dst + @elsize@ * i;
+#  else
+            dst = (char *) _dst + dst_stride * i;
+#  endif
 #  if @elsize@ != 16
             *((@type@ *)dst) = temp;
 #  else
             *((npy_uint64 *)dst) = temp0;
             *((npy_uint64 *)dst + 1) = temp1;
-#  endif
-#  if @dst_contig@
-            dst += @elsize@;
-#  else
-            dst += dst_stride;
 #  endif
         }
 #endif/* @elsize == 1 && @dst_contig@ -- else */
@@ -279,12 +284,15 @@ _strided_to_strided(void *_dst, npy_intp dst_stride,
     #pragma omp target device(device) map(to: N, _dst, dst_stride, \
                                               _src, src_stride, src_itemsize)
     {
-        char *dst = (char *) _dst;
-        char *src = (char *) _src;
-        while (N--) {
+        char *dst, *src;
+        npy_intp i;
+
+        #pragma omp parallel for private(dst,src)
+        for (i = 0; i < N; ++i) {
+            dst = (char *) _dst + dst_stride * i;
+            src = (char *) _src + src_stride * i;
+
             memmove(dst, src, src_itemsize);
-            dst += dst_stride;
-            src += src_stride;
         }
     }
 }
@@ -298,11 +306,15 @@ _swap_strided_to_strided(void *_dst, npy_intp dst_stride,
     #pragma omp target device(device) map(to: N, _dst, dst_stride,\
                                               _src, src_stride, src_itemsize)
     {
-        char *dst = (char *) _dst;
-        char *src = (char *) _src;
+        char *dst, *src;
         char *a, *b, c;
+        npy_intp i;
 
-        while (N--) {
+        #pragma omp parallel for private(dst,src)
+        for (i = 0; i < N; ++i) {
+            dst = (char *) _dst + dst_stride * i;
+            src = (char *) _src + src_stride * i;
+
             memmove(dst, src, src_itemsize);
             /* general in-place swap */
             a = dst;
@@ -313,8 +325,6 @@ _swap_strided_to_strided(void *_dst, npy_intp dst_stride,
                 *b = c;
                 ++a; --b;
             }
-            dst += dst_stride;
-            src += src_stride;
         }
     }
 }
@@ -328,12 +338,16 @@ _swap_pair_strided_to_strided(void *_dst, npy_intp dst_stride,
     #pragma omp target device(device) map(to: N, _dst, dst_stride,\
                                               _src, src_stride, src_itemsize)
     {
-        char *dst = (char *) _dst;
-        char *src = (char *) _src;
+        char *dst, *src;
         char *a, *b, c;
         npy_intp itemsize_half = src_itemsize / 2;
+        npy_intp i;
 
-        while (N--) {
+        #pragma omp parallel for private(dst,src)
+        for (i = 0; i < N; ++i) {
+            dst = (char *) _dst + dst_stride * i;
+            src = (char *) _src + src_stride * i;
+
             memmove(dst, src, src_itemsize);
             /* general in-place swap */
             a = dst;
@@ -353,8 +367,6 @@ _swap_pair_strided_to_strided(void *_dst, npy_intp dst_stride,
                 *b = c;
                 ++a; --b;
             }
-            dst += dst_stride;
-            src += src_stride;
         }
     }
 }
