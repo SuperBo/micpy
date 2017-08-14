@@ -80,8 +80,8 @@
                     npy_intp size1 = PyMicArray_SIZE(arr1); \
                     npy_intp size2 = PyMicArray_SIZE(arr2); \
                     count = ((size1 > size2) || size1 == 0) ? size1 : size2; \
-                    data1 = (npy_intp) PyMicArray_BYTES(arr1); \
-                    data2 = (npy_intp) PyMicArray_BYTES(arr2); \
+                    data1 = PyMicArray_BYTES(arr1); \
+                    data2 = PyMicArray_BYTES(arr2); \
                     stride1 = PyMicArray_TRIVIAL_PAIR_ITERATION_STRIDE(size1, arr1); \
                     stride2 = PyMicArray_TRIVIAL_PAIR_ITERATION_STRIDE(size2, arr2); \
                 }
@@ -101,9 +101,9 @@
                     npy_intp size3 = PyMicArray_SIZE(arr3); \
                     count = ((size1 > size2) || size1 == 0) ? size1 : size2; \
                     count = ((size3 > count) || size3 == 0) ? size3 : count; \
-                    data1 = (npy_intp) PyMicArray_BYTES(arr1); \
-                    data2 = (npy_intp) PyMicArray_BYTES(arr2); \
-                    data3 = (npy_intp) PyMicArray_BYTES(arr3); \
+                    data1 = PyMicArray_BYTES(arr1); \
+                    data2 = PyMicArray_BYTES(arr2); \
+                    data3 = PyMicArray_BYTES(arr3); \
                     stride1 = PyMicArray_TRIVIAL_PAIR_ITERATION_STRIDE(size1, arr1); \
                     stride2 = PyMicArray_TRIVIAL_PAIR_ITERATION_STRIDE(size2, arr2); \
                     stride3 = PyMicArray_TRIVIAL_PAIR_ITERATION_STRIDE(size3, arr3); \
@@ -931,8 +931,9 @@ trivial_two_operand_loop(PyMicArrayObject **op,
                     PyUFuncGenericFunction innerloop,
                     void *innerloopdata)
 {
-    npy_intp data[2];
-    npy_intp count[2], stride[2];
+    void *data0, *data1;
+    npy_intp stride0, stride1;
+    npy_intp count;
     int needs_api, device;
     MPY_TARGET_MIC PyUFuncGenericFunction offloop = innerloop;
     MPY_TARGET_MIC void (*offdata)(void) = innerloopdata;
@@ -945,19 +946,23 @@ trivial_two_operand_loop(PyMicArrayObject **op,
 
     device = PyMicArray_DEVICE(op[0]);
     PyMicArray_PREPARE_TRIVIAL_PAIR_ITERATION(op[0], op[1],
-                                              count[0],
-                                              data[0], data[1],
-                                              stride[0], stride[1]);
-    count[1] = count[0];
-    NPY_UF_DBG_PRINT1("two operand loop count %d\n", (int)count[0]);
+                                              count,
+                                              data0, data1,
+                                              stride0, stride1);
+    NPY_UF_DBG_PRINT1("two operand loop count %d\n", (int)count);
 
     if (!needs_api) {
-        NPY_BEGIN_THREADS_THRESHOLDED(count[0]);
+        NPY_BEGIN_THREADS_THRESHOLDED(count);
     }
 
-#pragma omp target device(device) map(to:offloop, data,\
-                                        count, stride, offdata)
-    offloop((char **)data, count, stride, offdata);
+#pragma offload target(mic:device) in(offloop, offdata, count,\
+                                      data0, data1,\
+                                      stride0, stride1)
+    {
+        char *data[] = {data0, data1};
+        npy_intp stride[] = {stride0, stride1};
+        offloop(data, &count, stride, offdata);
+    }
 
     NPY_END_THREADS;
 }
@@ -967,8 +972,9 @@ trivial_three_operand_loop(PyMicArrayObject **op,
                     PyUFuncGenericFunction innerloop,
                     void *innerloopdata)
 {
-    npy_intp data[3];
-    npy_intp count[3], stride[3];
+    void *data0, *data1, *data2;
+    npy_intp stride0, stride1, stride2;
+    npy_intp count;
     int needs_api, device;
     MPY_TARGET_MIC PyUFuncGenericFunction offloop = innerloop;
     MPY_TARGET_MIC void (*offdata)(void) = innerloopdata;
@@ -981,20 +987,24 @@ trivial_three_operand_loop(PyMicArrayObject **op,
 
     device = PyMicArray_DEVICE(op[0]);
     PyMicArray_PREPARE_TRIVIAL_TRIPLE_ITERATION(op[0], op[1], op[2],
-                                                count[0],
-                                                data[0], data[1], data[2],
-                                                stride[0], stride[1], stride[2]);
-    count[1] = count[0];
-    count[2] = count[0];
-    NPY_UF_DBG_PRINT1("three operand loop count %d\n", (int)count[0]);
+                                                count,
+                                                data0, data1, data2,
+                                                stride0, stride1, stride2);
+
+    NPY_UF_DBG_PRINT1("three operand loop count %d\n", (int)count);
 
     if (!needs_api) {
-        NPY_BEGIN_THREADS_THRESHOLDED(count[0]);
+        NPY_BEGIN_THREADS_THRESHOLDED(count);
     }
 
-#pragma omp target device(device) map(to:offloop, data,\
-                                        count, stride, offdata)
-    offloop((char **)data, count, stride, offdata);
+#pragma offload target(mic:device) in(offloop, offdata, count,\
+                                      data0, data1, data2,\
+                                      stride0, stride1, stride2)
+    {
+        char *data[] = {data0, data1, data2};
+        npy_intp stride[] = {stride0, stride1, stride2};
+        offloop(data, &count, stride, offdata);
+    }
 
     NPY_END_THREADS;
 }

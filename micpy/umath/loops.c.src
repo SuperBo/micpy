@@ -14,13 +14,13 @@
 #include <numpy/npy_math.h>
 #include <numpy/halffloat.h>
 #include <numpy/npy_3kcompat.h>
-#include "lowlevel_strided_loops.h"
 
 #define PyMicArray_API_UNIQUE_NAME _mpy_umathmodule_MICARRAY_API
 #define PyMicArray_NO_IMPORT
 #include <mpymath/mpy_math.h>
 #include <multiarray/arrayobject.h>
 #include <multiarray/multiarray_api.h>
+#include <multiarray/mpy_lowlevel_strided_loops.h>
 #include <non_standards.h>
 
 #define _MICARRAY_UMATHMODULE

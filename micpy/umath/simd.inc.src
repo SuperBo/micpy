@@ -15,7 +15,6 @@
 #ifndef __MPY_SIMD_INC
 #define __MPY_SIMD_INC
 
-#include "mpy_lowlevel_strided_loops.h"
 #include "common.h"
 /* for NO_FLOATING_POINT_SUPPORT */
 //#include "numpy/ufuncobject.h"
@@ -105,7 +104,7 @@ abs_intp(npy_intp x)
 
 #define LOOP_BLOCKED(type, vsize)\
     _Pragma("omp parallel for")\
-    for(; i < mpy_blocked_end(peel, sizeof(type), vsize, n);\
+    for(i = peel; i < mpy_blocked_end(peel, sizeof(type), vsize, n);\
             i += (vsize / sizeof(type)))
 
 #define LOOP_BLOCKED_END\
